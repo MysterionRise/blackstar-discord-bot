@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    labels: ["dependencies"]
+    open-pull-requests-limit: 5
+    groups:
+      dev-tools:
+        patterns: ["ruff", "mypy", "pytest*", "pre-commit", "bandit"]
+      runtime:
+        patterns: ["py-cord", "pydantic*", "sounddevice", "numpy"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "ci"]

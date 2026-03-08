@@ -1,0 +1,117 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blackstar-discord-bot"
+version = "0.1.0"
+description = "Streams Blackstar amp audio into Discord voice channels"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+  "py-cord[voice]>=2.7.0",
+  "python-dotenv>=1.0.0",
+  "pydantic-settings>=2.3.0",
+  "sounddevice>=0.4.6",
+  "numpy>=1.26.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blackstar_bot"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-mock>=3.12.0",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.4.0",
+  "mypy>=1.10.0",
+  "bandit[toml]>=1.7.8",
+  "pre-commit>=3.7.0",
+]
+
+# -- Ruff ---------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "N",    # pep8-naming
+  "UP",   # pyupgrade
+  "ANN",  # flake8-annotations (type hints)
+  "S",    # flake8-bandit (security)
+  "B",    # flake8-bugbear
+  "A",    # flake8-builtins
+  "C4",   # flake8-comprehensions
+  "DTZ",  # flake8-datetimez
+  "T20",  # flake8-print (ban bare print())
+  "SIM",  # flake8-simplify
+  "TID",  # flake8-tidy-imports
+  "TCH",  # flake8-type-checking
+  "RUF",  # ruff-specific rules
+  "ASYNC",# flake8-async
+]
+ignore = [
+  "S101",    # assert — fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "ANN", "T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["blackstar_bot"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# -- mypy ----------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+show_error_codes = true
+pretty = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+# discord / sounddevice ship partial stubs — suppress missing-imports
+module = ["discord.*", "sounddevice.*", "nacl.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Bot modules interact heavily with untyped py-cord API
+module = ["blackstar_bot.bot", "blackstar_bot.bot_sounddevice"]
+disallow_untyped_decorators = false
+disallow_untyped_calls = false
+warn_return_any = false
+
+# -- pytest --------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = [
+  "--cov=src/blackstar_bot",
+  "--cov-report=term-missing",
+  "--cov-report=xml:coverage.xml",
+  "--cov-fail-under=70",
+  "-v",
+]
+
+# -- bandit --------------------------------------------------------------------
+
+[tool.bandit]
+targets = ["src"]
+skips = ["B603", "B607"]

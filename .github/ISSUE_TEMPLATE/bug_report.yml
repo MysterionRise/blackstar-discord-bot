@@ -1,0 +1,49 @@
+name: Bug Report
+description: Report a defect in the bot
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting! Please fill in as much detail as possible."
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. Sequoia 15.3"
+    validations:
+      required: true
+  - type: input
+    id: amp_model
+    attributes:
+      label: Blackstar amp model
+      placeholder: "e.g. ID:Core V4 20W"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include exact error messages and logs from the bot console.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect amp via USB
+        2. Run `python bot.py`
+        3. Send `!stream` in Discord
+        4. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: audio_approach
+    attributes:
+      label: Which audio approach?
+      options:
+        - Approach B (FFmpeg — bot.py)
+        - Approach A (sounddevice — bot_sounddevice.py)
+        - Both
+    validations:
+      required: true

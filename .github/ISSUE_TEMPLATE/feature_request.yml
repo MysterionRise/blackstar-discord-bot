@@ -1,0 +1,26 @@
+name: Feature Request
+description: Suggest an enhancement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent area does this affect?
+      options:
+        - Audio capture pipeline
+        - Bot commands / Discord integration
+        - CI / infrastructure
+        - Documentation
+        - Multiple / unsure
