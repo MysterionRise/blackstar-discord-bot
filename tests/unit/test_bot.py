@@ -21,9 +21,9 @@ def test_ffmpeg_input_args_linux():
     assert "alsa" in opts
 
 
-def test_ffmpeg_input_args_other():
+def test_ffmpeg_input_args_win32():
     with patch("blackstar_bot.bot.sys") as mock_sys:
         mock_sys.platform = "win32"
         source, opts = _ffmpeg_input_args("MyDevice")
-    assert source == "MyDevice"
-    assert "pulse" in opts
+    assert source == "audio=MyDevice"
+    assert "dshow" in opts

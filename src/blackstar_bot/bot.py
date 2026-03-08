@@ -11,15 +11,23 @@ import discord
 from blackstar_bot.config import Settings
 
 logger = logging.getLogger(__name__)
+_settings: Settings | None = None
+
+
+def _get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings()  # type: ignore[call-arg]
+    return _settings
 
 
 def _ffmpeg_input_args(device_name: str) -> tuple[str, str]:
     """Return (input_source, before_options) for the current platform."""
     if sys.platform == "darwin":
         return (f":{device_name}", "-f avfoundation -ar 48000 -ac 2")
-    if sys.platform == "linux":
-        return (f"hw:{device_name}", "-f alsa -ar 48000 -ac 2")
-    return (device_name, "-f pulse -ar 48000 -ac 2")
+    if sys.platform == "win32":
+        return (f"audio={device_name}", "-f dshow -ar 48000 -ac 2")
+    return (f"hw:{device_name}", "-f alsa -ar 48000 -ac 2")
 
 
 bot: Any = discord.Bot(intents=discord.Intents.default())
@@ -38,15 +46,18 @@ async def stream(ctx: discord.ApplicationContext) -> None:
         await ctx.respond("You must be in a voice channel first.")
         return
 
+    if ctx.voice_client is not None:
+        await ctx.respond("Already streaming. Use /stop first.")
+        return
+
     channel = ctx.author.voice.channel  # type: ignore[union-attr]
     voice_client = await channel.connect()
 
-    settings = Settings()  # type: ignore[call-arg]
-
-    input_source, before_options = _ffmpeg_input_args(settings.audio_device)
+    s = _get_settings()
+    input_source, before_options = _ffmpeg_input_args(s.audio_device)
     source = discord.FFmpegPCMAudio(input_source, before_options=before_options)
     voice_client.play(source, signal_type="music")
-    await ctx.respond(f"Streaming audio from **{settings.audio_device}** in {channel.name}.")
+    await ctx.respond(f"Streaming audio from **{s.audio_device}** in {channel.name}.")
 
 
 @bot.slash_command(description="Stop streaming and leave the voice channel")
@@ -55,15 +66,17 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     if ctx.voice_client is None:
         await ctx.respond("Not currently in a voice channel.")
         return
-    await ctx.voice_client.disconnect()
+    vc = ctx.voice_client
+    if vc.is_playing():
+        vc.stop()
+    await vc.disconnect()
     await ctx.respond("Stopped streaming.")
 
 
 def main() -> None:
     """Entry point for running the bot."""
     logging.basicConfig(level=logging.INFO)
-    settings = Settings()  # type: ignore[call-arg]
-    bot.run(settings.discord_token)
+    bot.run(_get_settings().discord_token)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ repos:
           - "pydantic>=2.0"
           - "pydantic-settings>=2.3.0"
           - "numpy>=1.26.0"
+          - "python-dotenv>=1.0.0"
         args: ["--config-file=pyproject.toml"]
 
   # -- Security: bandit --------------------------------------------------------

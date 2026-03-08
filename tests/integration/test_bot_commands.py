@@ -21,6 +21,15 @@ def _make_ctx(*, in_voice=True, voice_client=None):
     return ctx
 
 
+def _mock_settings():
+    """Create a mock Settings object."""
+    s = MagicMock()
+    s.audio_device = "Blackstar"
+    s.volume = 1.0
+    s.discord_token = "fake-token"
+    return s
+
+
 @pytest.mark.asyncio
 async def test_stream_command_requires_voice_channel():
     """The /stream command should tell the user to join a voice channel first."""
@@ -47,11 +56,9 @@ async def test_stream_command_device_not_found():
     """The /stream command should report when the audio device is not found."""
     ctx = _make_ctx(in_voice=True)
     with (
-        patch("blackstar_bot.bot_sounddevice.Settings") as mock_settings_cls,
+        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
         patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
     ):
-        mock_settings_cls.return_value.audio_device = "NonExistent"
-        mock_settings_cls.return_value.volume = 1.0
         await stream(ctx)
     ctx.respond.assert_awaited_once()
     args = ctx.respond.await_args[0][0]
@@ -59,12 +66,26 @@ async def test_stream_command_device_not_found():
 
 
 @pytest.mark.asyncio
-async def test_stop_command_disconnects_and_cleans_up():
-    """The /stop command should cleanup the source and disconnect."""
-    mock_source = MagicMock(spec=BlackstarAudioSource)
+async def test_stop_command_disconnects_when_playing():
+    """The /stop command should stop playback and disconnect."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=True)
     vc.stop = MagicMock()
+
+    ctx = _make_ctx(in_voice=True, voice_client=vc)
+    await stop(ctx)
+
+    vc.stop.assert_called_once()
+    vc.disconnect.assert_awaited_once()
+    ctx.respond.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_command_cleans_up_when_not_playing():
+    """The /stop command should cleanup source when not playing but source exists."""
+    mock_source = MagicMock(spec=BlackstarAudioSource)
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
     vc.source = mock_source
 
     ctx = _make_ctx(in_voice=True, voice_client=vc)
@@ -72,4 +93,14 @@ async def test_stop_command_disconnects_and_cleans_up():
 
     mock_source.cleanup.assert_called_once()
     vc.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_command_already_connected():
+    """The /stream command should reject when already streaming."""
+    vc = AsyncMock()
+    ctx = _make_ctx(in_voice=True, voice_client=vc)
+    await stream(ctx)
     ctx.respond.assert_awaited_once()
+    args = ctx.respond.await_args[0][0]
+    assert "already streaming" in args.lower()

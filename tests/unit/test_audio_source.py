@@ -107,3 +107,37 @@ def test_audio_callback_logs_on_overrun(device_48k, caplog):
         source._audio_callback(indata, 960, None, None)
 
     assert any("overrun" in record.message for record in caplog.records)
+
+
+def test_volume_rejects_negative(device_48k):
+    """Negative volume should raise ValueError."""
+    with pytest.raises(ValueError, match="non-negative"):
+        BlackstarAudioSource(device_48k, volume=-1.0)
+
+
+def test_volume_rejects_nan(device_48k):
+    """NaN volume should raise ValueError."""
+    with pytest.raises(ValueError, match="finite"):
+        BlackstarAudioSource(device_48k, volume=float("nan"))
+
+
+def test_volume_zero_produces_silence(device_48k):
+    """Volume 0.0 should produce all-zero output."""
+    source = BlackstarAudioSource(device_48k, volume=0.0)
+    num_samples = BYTES_PER_FRAME // 2
+    frame = struct.pack(f"<{num_samples}h", *([0x7FFF] * num_samples))
+    source._buffer.put_nowait(frame)
+    result = source.read()
+    out_samples = np.frombuffer(result, dtype=np.int16)
+    assert all(s == 0 for s in out_samples)
+
+
+def test_volume_clipping(device_48k):
+    """Volume > 1.0 with max samples should clip, not overflow."""
+    source = BlackstarAudioSource(device_48k, volume=2.0)
+    num_samples = BYTES_PER_FRAME // 2
+    frame = struct.pack(f"<{num_samples}h", *([0x7FFF] * num_samples))
+    source._buffer.put_nowait(frame)
+    result = source.read()
+    out_samples = np.frombuffer(result, dtype=np.int16)
+    assert all(s == 32767 for s in out_samples)

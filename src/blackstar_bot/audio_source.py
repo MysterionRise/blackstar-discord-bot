@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import queue
+import threading
 from typing import TYPE_CHECKING, Any
 
 import discord
@@ -34,6 +36,10 @@ class BlackstarAudioSource(discord.AudioSource):
         self._volume = volume
         self._buffer: queue.Queue[bytes] = queue.Queue(maxsize=50)
         self._stream: sd.RawInputStream | None = None
+        self._lock = threading.Lock()
+        if not math.isfinite(volume) or volume < 0.0:
+            msg = f"volume must be a finite non-negative number, got {volume}"
+            raise ValueError(msg)
 
     def _audio_callback(
         self,
@@ -80,9 +86,10 @@ class BlackstarAudioSource(discord.AudioSource):
         except queue.Empty:
             return SILENCE
 
-        if self._volume != 1.0:
+        vol = self._volume
+        if vol != 1.0:
             samples = np.frombuffer(data, dtype=np.int16)
-            samples = np.clip(samples * self._volume, -32768, 32767).astype(np.int16)
+            samples = np.clip(samples * vol, -32768, 32767).astype(np.int16)
             return bytes(samples.tobytes())
         return data
 
@@ -91,8 +98,10 @@ class BlackstarAudioSource(discord.AudioSource):
         return False
 
     def cleanup(self) -> None:
-        """Stop and close the PortAudio stream (idempotent)."""
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        """Stop and close the PortAudio stream (idempotent, thread-safe)."""
+        with self._lock:
+            if self._stream is not None:
+                with contextlib.suppress(Exception):
+                    self._stream.stop()
+                self._stream.close()
+                self._stream = None

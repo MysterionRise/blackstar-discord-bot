@@ -12,6 +12,15 @@ from blackstar_bot.config import Settings
 from blackstar_bot.device_finder import find_device_by_name
 
 logger = logging.getLogger(__name__)
+_settings: Settings | None = None
+
+
+def _get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings()  # type: ignore[call-arg]
+    return _settings
+
 
 bot: Any = discord.Bot(intents=discord.Intents.default())
 
@@ -29,16 +38,20 @@ async def stream(ctx: discord.ApplicationContext) -> None:
         await ctx.respond("You must be in a voice channel first.")
         return
 
-    settings = Settings()  # type: ignore[call-arg]
-    device = find_device_by_name(settings.audio_device)
+    if ctx.voice_client is not None:
+        await ctx.respond("Already streaming. Use /stop first.")
+        return
+
+    s = _get_settings()
+    device = find_device_by_name(s.audio_device)
     if device is None:
-        await ctx.respond(f"Audio device matching '{settings.audio_device}' not found.")
+        await ctx.respond(f"Audio device matching '{s.audio_device}' not found.")
         return
 
     channel = ctx.author.voice.channel  # type: ignore[union-attr]
     voice_client = await channel.connect()
 
-    source = BlackstarAudioSource(device, volume=settings.volume)
+    source = BlackstarAudioSource(device, volume=s.volume)
     source.start()
 
     def _after_playback(error: Exception | None) -> None:
@@ -58,10 +71,9 @@ async def stop(ctx: discord.ApplicationContext) -> None:
         return
     vc = ctx.voice_client
     if vc.is_playing():
-        source = vc.source
         vc.stop()
-        if isinstance(source, BlackstarAudioSource):
-            source.cleanup()
+    elif isinstance(vc.source, BlackstarAudioSource):
+        vc.source.cleanup()
     await vc.disconnect()
     await ctx.respond("Stopped streaming.")
 
@@ -69,8 +81,7 @@ async def stop(ctx: discord.ApplicationContext) -> None:
 def main() -> None:
     """Entry point for running the bot."""
     logging.basicConfig(level=logging.INFO)
-    settings = Settings()  # type: ignore[call-arg]
-    bot.run(settings.discord_token)
+    bot.run(_get_settings().discord_token)
 
 
 if __name__ == "__main__":

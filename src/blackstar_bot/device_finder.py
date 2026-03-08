@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import sounddevice as sd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,7 +24,11 @@ class AudioDevice:
 def list_input_devices() -> list[AudioDevice]:
     """Return all audio input devices available on the system."""
     devices: list[AudioDevice] = []
-    device_list: Any = sd.query_devices()
+    try:
+        device_list: Any = sd.query_devices()
+    except Exception:
+        logger.warning("PortAudio error while querying devices", exc_info=True)
+        return []
     for i, dev in enumerate(device_list):
         if dev["max_input_channels"] > 0:
             devices.append(

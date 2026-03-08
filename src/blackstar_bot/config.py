@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +11,6 @@ class Settings(BaseSettings):
 
     discord_token: str
     audio_device: str = "Blackstar"
-    audio_device_index: int | None = None
-    volume: float = 1.0
+    volume: float = Field(default=1.0, ge=0.0, le=5.0)
 
     model_config = SettingsConfigDict(env_file=".env")
