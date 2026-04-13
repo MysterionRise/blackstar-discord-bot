@@ -10,11 +10,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
-  "py-cord[voice]>=2.7.0",
+  "py-cord[voice]>=2.7.1",
   "python-dotenv>=1.0.0",
-  "pydantic-settings>=2.3.0",
-  "sounddevice>=0.4.6",
-  "numpy>=1.26.0",
+  "pydantic-settings>=2.13.1",
+  "sounddevice>=0.5.5",
+  "numpy>=2.4.4",
 ]
 
 [project.scripts]
