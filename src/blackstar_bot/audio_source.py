@@ -28,18 +28,38 @@ BYTES_PER_FRAME = SAMPLES_PER_FRAME * CHANNELS * 2  # 3840
 SILENCE = b"\x00" * BYTES_PER_FRAME
 
 
-class BlackstarAudioSource(discord.AudioSource):
+class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc]
     """Captures PCM audio from a Blackstar USB amp via sounddevice."""
 
     def __init__(self, device: AudioDevice, volume: float = 1.0) -> None:
         self._device = device
-        self._volume = volume
         self._buffer: queue.Queue[bytes] = queue.Queue(maxsize=50)
         self._stream: sd.RawInputStream | None = None
         self._lock = threading.Lock()
+        self._volume = self._validate_volume(volume)
+
+    @staticmethod
+    def _validate_volume(volume: float) -> float:
         if not math.isfinite(volume) or volume < 0.0:
             msg = f"volume must be a finite non-negative number, got {volume}"
             raise ValueError(msg)
+        return volume
+
+    @property
+    def volume(self) -> float:
+        """Return the current playback volume multiplier."""
+        with self._lock:
+            return self._volume
+
+    @property
+    def device_name(self) -> str:
+        """Return the capture device display name."""
+        return self._device.name
+
+    def set_volume(self, volume: float) -> None:
+        """Set the playback volume multiplier."""
+        with self._lock:
+            self._volume = self._validate_volume(volume)
 
     def _audio_callback(
         self,
@@ -86,7 +106,7 @@ class BlackstarAudioSource(discord.AudioSource):
         except queue.Empty:
             return SILENCE
 
-        vol = self._volume
+        vol = self.volume
         if vol != 1.0:
             samples = np.frombuffer(data, dtype=np.int16)
             samples = np.clip(samples * vol, -32768, 32767).astype(np.int16)

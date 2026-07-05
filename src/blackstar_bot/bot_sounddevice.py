@@ -2,17 +2,63 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
-from typing import Any
+import sys
+from typing import Any, Protocol
 
 import discord
 
 from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.config import Settings
-from blackstar_bot.device_finder import find_device_by_name
+from blackstar_bot.config import AudioBackend, Settings
+from blackstar_bot.device_finder import AudioDevice, find_device_by_name, list_input_devices
 
 logger = logging.getLogger(__name__)
 _settings: Settings | None = None
+_volume_override: float | None = None
+
+CONNECT_ATTEMPTS = 2
+CONNECT_RETRY_DELAY_SECONDS = 1.0
+MAX_DEVICE_LIST_ITEMS = 10
+
+
+class VoiceChannel(Protocol):
+    """Minimal voice channel interface used by command handlers."""
+
+    name: str
+
+    async def connect(self) -> VoiceClient:
+        """Connect the bot to this voice channel."""
+        ...
+
+
+class VoiceClient(Protocol):
+    """Minimal Discord voice client interface used by command handlers."""
+
+    source: object
+
+    def is_playing(self) -> bool:
+        """Return whether audio playback is active."""
+        ...
+
+    def stop(self) -> None:
+        """Stop audio playback."""
+        ...
+
+    async def disconnect(self) -> None:
+        """Disconnect from the voice channel."""
+        ...
+
+    def play(
+        self,
+        source: object,
+        *,
+        signal_type: str,
+        after: object | None = None,
+    ) -> None:
+        """Start audio playback."""
+        ...
 
 
 def _get_settings() -> Settings:
@@ -20,6 +66,196 @@ def _get_settings() -> Settings:
     if _settings is None:
         _settings = Settings()  # type: ignore[call-arg]
     return _settings
+
+
+def _set_volume_override(volume: float) -> None:
+    global _volume_override
+    _volume_override = volume
+
+
+def _effective_volume(settings: Settings) -> float:
+    if _volume_override is not None:
+        return _volume_override
+    return settings.volume
+
+
+def _normalize_backend(value: str) -> AudioBackend | None:
+    backend = value.strip().lower()
+    if backend == "sounddevice":
+        return "sounddevice"
+    if backend == "ffmpeg":
+        return "ffmpeg"
+    return None
+
+
+def _select_backend(settings: Settings, requested_backend: str | None) -> AudioBackend | None:
+    if requested_backend is not None:
+        return _normalize_backend(requested_backend)
+    return settings.audio_backend
+
+
+def _ffmpeg_input_args(device_name: str) -> tuple[str, str]:
+    """Return (input_source, before_options) for the current platform."""
+    if sys.platform == "darwin":
+        return (f":{device_name}", "-f avfoundation -ar 48000 -ac 2")
+    if sys.platform == "win32":
+        return (f"audio={device_name}", "-f dshow -ar 48000 -ac 2")
+    return (f"hw:{device_name}", "-f alsa -ar 48000 -ac 2")
+
+
+def _format_device_list(devices: list[AudioDevice]) -> str:
+    if not devices:
+        return "No audio input devices were detected."
+
+    lines = ["Detected audio input devices:"]
+    for device in devices[:MAX_DEVICE_LIST_ITEMS]:
+        lines.append(
+            f"- `{device.name}` ({device.max_input_channels} input channels, "
+            f"{device.default_samplerate:g} Hz)"
+        )
+    if len(devices) > MAX_DEVICE_LIST_ITEMS:
+        lines.append(f"...and {len(devices) - MAX_DEVICE_LIST_ITEMS} more.")
+    return "\n".join(lines)
+
+
+def _active_sounddevice_source(voice_client: object) -> BlackstarAudioSource | None:
+    source = getattr(voice_client, "source", None)
+    if isinstance(source, BlackstarAudioSource):
+        return source
+    return None
+
+
+async def _connect_with_retry(channel: VoiceChannel) -> VoiceClient:
+    last_error: Exception | None = None
+    for attempt in range(1, CONNECT_ATTEMPTS + 1):
+        try:
+            logger.info(
+                "voice_connect_attempt",
+                extra={"channel": getattr(channel, "name", "?"), "attempt": attempt},
+            )
+            return await channel.connect()
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "voice_connect_failed",
+                extra={"channel": getattr(channel, "name", "?"), "attempt": attempt},
+                exc_info=True,
+            )
+            if attempt < CONNECT_ATTEMPTS:
+                await asyncio.sleep(CONNECT_RETRY_DELAY_SECONDS)
+    if last_error is not None:
+        raise last_error
+    msg = "voice connection failed without an exception"
+    raise RuntimeError(msg)
+
+
+async def _disconnect_quietly(voice_client: VoiceClient) -> None:
+    with contextlib.suppress(Exception):
+        await voice_client.disconnect()
+
+
+async def _send_channel_message(ctx: discord.ApplicationContext, message: str) -> None:
+    channel = getattr(ctx, "channel", None)
+    send = getattr(channel, "send", None)
+    if send is not None:
+        await send(message)
+
+
+def _after_playback(
+    ctx: discord.ApplicationContext,
+    source: BlackstarAudioSource | None,
+    error: Exception | None,
+) -> None:
+    if source is not None:
+        source.cleanup()
+    if error is None:
+        return
+    logger.error("playback_error", extra={"error": str(error)}, exc_info=error)
+    with contextlib.suppress(Exception):
+        bot.loop.create_task(_send_channel_message(ctx, f"Playback stopped unexpectedly: {error}"))
+
+
+async def _start_sounddevice_stream(
+    ctx: discord.ApplicationContext,
+    channel: VoiceChannel,
+    device_name: str,
+    volume: float,
+) -> None:
+    device = find_device_by_name(device_name)
+    if device is None:
+        logger.info("audio_device_not_found", extra={"device_query": device_name})
+        await ctx.respond(
+            f"Audio device matching '{device_name}' was not found. "
+            "Use `/devices` to see detected inputs."
+        )
+        return
+
+    voice_client: VoiceClient | None = None
+    source: BlackstarAudioSource | None = None
+    try:
+        voice_client = await _connect_with_retry(channel)
+        source = BlackstarAudioSource(device, volume=volume)
+        source.start()
+        voice_client.play(
+            source,
+            signal_type="music",
+            after=lambda error: _after_playback(ctx, source, error),
+        )
+    except Exception as exc:
+        if source is not None:
+            source.cleanup()
+        if voice_client is not None:
+            await _disconnect_quietly(voice_client)
+        logger.warning(
+            "sounddevice_stream_start_failed",
+            extra={"device": device.name, "volume": volume},
+            exc_info=True,
+        )
+        await ctx.respond(f"Could not start streaming from '{device.name}': {exc}")
+        return
+
+    logger.info(
+        "sounddevice_stream_started",
+        extra={"device": device.name, "channel": getattr(channel, "name", "?"), "volume": volume},
+    )
+    await ctx.respond(f"Streaming audio from **{device.name}** in {channel.name}.")
+
+
+async def _start_ffmpeg_stream(
+    ctx: discord.ApplicationContext,
+    channel: VoiceChannel,
+    device_name: str,
+) -> None:
+    voice_client: VoiceClient | None = None
+    try:
+        voice_client = await _connect_with_retry(channel)
+        input_source, before_options = _ffmpeg_input_args(device_name)
+        source = discord.FFmpegPCMAudio(input_source, before_options=before_options)
+        voice_client.play(
+            source,
+            signal_type="music",
+            after=lambda error: _after_playback(ctx, None, error),
+        )
+    except Exception as exc:
+        if voice_client is not None:
+            await _disconnect_quietly(voice_client)
+        logger.warning(
+            "ffmpeg_stream_start_failed",
+            extra={"device": device_name, "platform": sys.platform},
+            exc_info=True,
+        )
+        await ctx.respond(f"Could not start FFmpeg streaming from '{device_name}': {exc}")
+        return
+
+    logger.info(
+        "ffmpeg_stream_started",
+        extra={
+            "device": device_name,
+            "channel": getattr(channel, "name", "?"),
+            "platform": sys.platform,
+        },
+    )
+    await ctx.respond(f"Streaming audio from **{device_name}** via FFmpeg in {channel.name}.")
 
 
 bot: Any = discord.Bot(intents=discord.Intents.default())
@@ -32,35 +268,46 @@ async def on_ready() -> None:
 
 
 @bot.slash_command(description="Stream Blackstar amp audio into your voice channel")
-async def stream(ctx: discord.ApplicationContext) -> None:
-    """Join the user's voice channel and start streaming audio via sounddevice."""
-    if ctx.author.voice is None or ctx.author.voice.channel is None:  # type: ignore[union-attr]
-        await ctx.respond("You must be in a voice channel first.")
+async def stream(
+    ctx: discord.ApplicationContext,
+    device_name: str | None = None,
+    backend: str | None = None,
+) -> None:
+    """Join the user's voice channel and start streaming audio."""
+    if ctx.author.voice is None or ctx.author.voice.channel is None:
+        await ctx.respond("You must be in a voice channel before starting a stream.")
         return
 
     if ctx.voice_client is not None:
-        await ctx.respond("Already streaming. Use /stop first.")
+        await ctx.respond(
+            "Already streaming in a voice channel. Use `/stop` before starting again."
+        )
         return
 
     s = _get_settings()
-    device = find_device_by_name(s.audio_device)
-    if device is None:
-        await ctx.respond(f"Audio device matching '{s.audio_device}' not found.")
+    selected_backend = _select_backend(s, backend)
+    if selected_backend is None:
+        await ctx.respond("Unknown backend. Use `sounddevice` or `ffmpeg`.")
         return
 
-    channel = ctx.author.voice.channel  # type: ignore[union-attr]
-    voice_client = await channel.connect()
+    selected_device = device_name or s.audio_device
+    channel = ctx.author.voice.channel
 
-    source = BlackstarAudioSource(device, volume=s.volume)
-    source.start()
+    if s.debug_config:
+        logger.info(
+            "stream_config",
+            extra={
+                "backend": selected_backend,
+                "device": selected_device,
+                "volume": _effective_volume(s),
+            },
+        )
 
-    def _after_playback(error: Exception | None) -> None:
-        source.cleanup()
-        if error:
-            logger.error("Playback error: %s", error)
+    if selected_backend == "sounddevice":
+        await _start_sounddevice_stream(ctx, channel, selected_device, _effective_volume(s))
+        return
 
-    voice_client.play(source, signal_type="music", after=_after_playback)
-    await ctx.respond(f"Streaming audio from **{device.name}** in {channel.name}.")
+    await _start_ffmpeg_stream(ctx, channel, selected_device)
 
 
 @bot.slash_command(description="Stop streaming and leave the voice channel")
@@ -72,10 +319,60 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     vc = ctx.voice_client
     if vc.is_playing():
         vc.stop()
-    elif isinstance(vc.source, BlackstarAudioSource):
-        vc.source.cleanup()
+    source = _active_sounddevice_source(vc)
+    if source is not None:
+        source.cleanup()
     await vc.disconnect()
+    logger.info("stream_stopped")
     await ctx.respond("Stopped streaming.")
+
+
+@bot.slash_command(description="Show the current streaming status")
+async def status(ctx: discord.ApplicationContext) -> None:
+    """Report whether the bot is currently streaming."""
+    if ctx.voice_client is None:
+        await ctx.respond("Not streaming. Use `/stream` from a voice channel to start.")
+        return
+
+    vc = ctx.voice_client
+    source = _active_sounddevice_source(vc)
+    if source is not None:
+        await ctx.respond(
+            f"Streaming from **{source.device_name}** with volume `{source.volume:g}`."
+        )
+        return
+
+    await ctx.respond("Streaming via FFmpeg or another Discord audio source.")
+
+
+@bot.slash_command(description="List detected audio input devices")
+async def devices(ctx: discord.ApplicationContext) -> None:
+    """List available local audio input devices."""
+    detected_devices = list_input_devices()
+    logger.info("audio_devices_listed", extra={"count": len(detected_devices)})
+    await ctx.respond(_format_device_list(detected_devices))
+
+
+@bot.slash_command(description="Show or change the current stream volume")
+async def volume(ctx: discord.ApplicationContext, level: float | None = None) -> None:
+    """Show or change the sounddevice playback volume."""
+    s = _get_settings()
+    if level is None:
+        await ctx.respond(f"Current configured volume is `{_effective_volume(s):g}`.")
+        return
+
+    if level < 0.0 or level > 5.0:
+        await ctx.respond("Volume must be between `0.0` and `5.0`.")
+        return
+
+    _set_volume_override(level)
+    source = _active_sounddevice_source(ctx.voice_client) if ctx.voice_client is not None else None
+    if source is not None:
+        source.set_volume(level)
+        await ctx.respond(f"Updated active stream volume to `{level:g}`.")
+        return
+
+    await ctx.respond(f"Volume set to `{level:g}` for the next sounddevice stream.")
 
 
 def main() -> None:

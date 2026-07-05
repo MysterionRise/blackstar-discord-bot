@@ -7,16 +7,22 @@ Python bot that streams guitar audio from a Blackstar USB amp into a Discord voi
 - Stream live guitar audio from a Blackstar amplifier into Discord voice chat
 - Two audio approaches: FFmpeg-based (`bot.py`) and sounddevice-based (`bot_sounddevice.py`)
 - Automatic USB audio device discovery
-- Configurable volume control
-- Slash commands (`/stream`, `/stop`)
+- Configurable backend, device, and volume control
+- Slash commands (`/stream`, `/stop`, `/status`, `/devices`, `/volume`)
 
 ## Requirements
 
 - Python 3.12+
 - macOS (for USB audio capture from Blackstar amp)
-- FFmpeg (for Approach B)
-- PortAudio (for Approach A / sounddevice)
+- PortAudio (primary sounddevice backend)
+- FFmpeg (optional fallback backend)
 - A Blackstar amplifier with USB audio output
+
+On macOS, install the audio dependencies with Homebrew:
+
+```bash
+brew install portaudio ffmpeg
+```
 
 ## Setup
 
@@ -35,7 +41,8 @@ pre-commit install --hook-type commit-msg
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your DISCORD_TOKEN
+# Edit .env and add your DISCORD_TOKEN.
+# AUDIO_BACKEND defaults to sounddevice; set it to ffmpeg only as a fallback.
 ```
 
 ## Usage
@@ -44,16 +51,19 @@ cp .env.example .env
 # Check that your Blackstar amp is detected
 python scripts/list_devices.py
 
-# Run the bot (Approach B — FFmpeg)
-python -m blackstar_bot.bot
-
-# Or run the bot (Approach A — sounddevice)
+# Run the primary bot (sounddevice by default, FFmpeg fallback via AUDIO_BACKEND)
 python -m blackstar_bot.bot_sounddevice
+
+# Legacy FFmpeg-only entry point
+python -m blackstar_bot.bot
 ```
 
 In Discord, use:
-- `/stream` — Join your voice channel and start streaming audio
+- `/stream` — Join your voice channel and start streaming audio; accepts optional device/backend overrides
 - `/stop` — Stop streaming and disconnect
+- `/status` — Show whether the bot is streaming
+- `/devices` — List detected audio input devices
+- `/volume` — Show or change the sounddevice playback volume
 
 ## Development
 
@@ -87,6 +97,17 @@ scripts/
   create_labels.sh     # Bulk-create GitHub labels
   list_devices.py      # List available audio input devices
 ```
+
+## Configuration & Troubleshooting
+
+`AUDIO_DEVICE` is a case-insensitive substring match, so `Blackstar` should match
+typical Blackstar USB devices. If streaming fails, run `python scripts/list_devices.py`
+or `/devices` to confirm the amp is visible. The sounddevice backend requires a
+48 kHz input device; wrong-rate devices are rejected before playback starts.
+
+Set `DEBUG_CONFIG=true` to log the selected backend, device, and volume without
+printing the Discord token. Linux and Windows FFmpeg paths are best-effort and
+should be verified on real hardware before relying on them.
 
 ## License
 

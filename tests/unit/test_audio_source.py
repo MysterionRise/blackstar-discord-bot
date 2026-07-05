@@ -141,3 +141,23 @@ def test_volume_clipping(device_48k):
     result = source.read()
     out_samples = np.frombuffer(result, dtype=np.int16)
     assert all(s == 32767 for s in out_samples)
+
+
+def test_set_volume_updates_runtime_scaling(device_48k):
+    """set_volume() should affect later reads."""
+    source = BlackstarAudioSource(device_48k, volume=1.0)
+    source.set_volume(0.25)
+    assert source.volume == 0.25
+
+    num_samples = BYTES_PER_FRAME // 2
+    frame = struct.pack(f"<{num_samples}h", *([12000] * num_samples))
+    source._buffer.put_nowait(frame)
+    result = source.read()
+    out_samples = np.frombuffer(result, dtype=np.int16)
+    assert all(abs(int(s) - 3000) <= 1 for s in out_samples)
+
+
+def test_device_name_exposes_selected_device(device_48k):
+    """device_name should expose the capture device display name."""
+    source = BlackstarAudioSource(device_48k)
+    assert source.device_name == "Blackstar ID:Core V4"

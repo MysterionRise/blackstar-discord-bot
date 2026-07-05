@@ -14,3 +14,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - GitHub Actions CI pipeline (lint, typecheck, test, security)
 - GitHub issue and PR templates
 - Claude Code agentic team configuration (orchestrator + 4 specialist agents)
+- Runtime backend selection, device listing, status, and volume slash commands
+- Safer stream startup cleanup, voice connect retry, and playback diagnostics
