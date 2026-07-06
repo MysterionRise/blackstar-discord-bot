@@ -42,7 +42,8 @@ async def on_ready() -> None:
 @bot.slash_command(description="Stream Blackstar amp audio into your voice channel")
 async def stream(ctx: discord.ApplicationContext) -> None:
     """Join the user's voice channel and start streaming audio via FFmpeg."""
-    if ctx.author.voice is None or ctx.author.voice.channel is None:
+    voice_state = getattr(ctx.author, "voice", None)
+    if voice_state is None or voice_state.channel is None:
         await ctx.respond("You must be in a voice channel first.")
         return
 
@@ -50,7 +51,7 @@ async def stream(ctx: discord.ApplicationContext) -> None:
         await ctx.respond("Already streaming. Use /stop first.")
         return
 
-    channel = ctx.author.voice.channel
+    channel = voice_state.channel
     voice_client = await channel.connect()
 
     s = _get_settings()

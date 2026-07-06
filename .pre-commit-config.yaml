@@ -34,7 +34,8 @@ repos:
           - "pydantic-settings>=2.3.0"
           - "numpy>=1.26.0"
           - "python-dotenv>=1.0.0"
-        args: ["--config-file=pyproject.toml"]
+        args: ["--config-file=pyproject.toml", "src/"]
+        pass_filenames: false
 
   # -- Security: bandit --------------------------------------------------------
   - repo: https://github.com/PyCQA/bandit

@@ -274,7 +274,8 @@ async def stream(
     backend: str | None = None,
 ) -> None:
     """Join the user's voice channel and start streaming audio."""
-    if ctx.author.voice is None or ctx.author.voice.channel is None:
+    voice_state = getattr(ctx.author, "voice", None)
+    if voice_state is None or voice_state.channel is None:
         await ctx.respond("You must be in a voice channel before starting a stream.")
         return
 
@@ -291,7 +292,7 @@ async def stream(
         return
 
     selected_device = device_name or s.audio_device
-    channel = ctx.author.voice.channel
+    channel = voice_state.channel
 
     if s.debug_config:
         logger.info(

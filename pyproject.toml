@@ -66,6 +66,7 @@ select = [
 ]
 ignore = [
   "S101",    # assert — fine in tests
+  "ANN101",  # self type annotations add noise and are no longer required by newer Ruff
 ]
 
 [tool.ruff.lint.per-file-ignores]

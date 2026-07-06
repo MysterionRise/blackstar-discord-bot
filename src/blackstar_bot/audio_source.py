@@ -7,7 +7,7 @@ import logging
 import math
 import queue
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import discord
 import numpy as np
@@ -28,7 +28,7 @@ BYTES_PER_FRAME = SAMPLES_PER_FRAME * CHANNELS * 2  # 3840
 SILENCE = b"\x00" * BYTES_PER_FRAME
 
 
-class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc]
+class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignore]
     """Captures PCM audio from a Blackstar USB amp via sounddevice."""
 
     def __init__(self, device: AudioDevice, volume: float = 1.0) -> None:
@@ -109,8 +109,11 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc]
         vol = self.volume
         if vol != 1.0:
             samples = np.frombuffer(data, dtype=np.int16)
-            samples = np.clip(samples * vol, -32768, 32767).astype(np.int16)
-            return bytes(samples.tobytes())
+            scaled = cast(
+                "np.ndarray[Any, np.dtype[np.int16]]",
+                np.clip(samples * vol, -32768, 32767).astype(np.int16),
+            )
+            return scaled.tobytes()
         return data
 
     def is_opus(self) -> bool:
