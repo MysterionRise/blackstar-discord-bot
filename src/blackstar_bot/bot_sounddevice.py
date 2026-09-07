@@ -57,10 +57,17 @@ class VoiceClient(Protocol):
         self,
         source: object,
         *,
-        signal_type: str,
+        signal_type: str = "auto",
         after: object | None = None,
+        wait_finish: bool = False,
     ) -> None:
-        """Start audio playback."""
+        """Start audio playback.
+
+        Mirrors ``discord.voice.VoiceClient.play``. Keep this in step with
+        py-cord: a parameter here that the library does not have makes mypy
+        validate calls against an API that does not exist. ``signal_type``
+        requires py-cord >= 2.8.
+        """
         ...
 
 
@@ -160,7 +167,9 @@ def _after_playback(
         return
     logger.error("playback_error", extra={"error": str(error)}, exc_info=error)
     with contextlib.suppress(Exception):
-        bot.loop.create_task(_send_channel_message(ctx, f"Playback stopped unexpectedly: {error}"))
+        bot.loop.create_task(
+            _send_channel_message(ctx, "Playback stopped unexpectedly; see the bot log.")
+        )
 
 
 async def _start_sounddevice_stream(
@@ -174,7 +183,8 @@ async def _start_sounddevice_stream(
         logger.info("audio_device_not_found", extra={"device_query": device_name})
         await ctx.respond(
             f"Audio device matching '{device_name}' was not found. "
-            "Use `/devices` to see detected inputs."
+            "Use `/devices` to see detected inputs.",
+            ephemeral=True,
         )
         return
 
@@ -199,7 +209,7 @@ async def _start_sounddevice_stream(
             extra={"device": device.name, "volume": volume},
             exc_info=True,
         )
-        await ctx.respond(f"Could not start streaming from '{device.name}': {exc}")
+        await ctx.respond(f"Could not start streaming from '{device.name}': {exc}", ephemeral=True)
         return
 
     logger.info(
@@ -232,7 +242,9 @@ async def _start_ffmpeg_stream(
             extra={"device": device_name, "platform": sys.platform},
             exc_info=True,
         )
-        await ctx.respond(f"Could not start FFmpeg streaming from '{device_name}': {exc}")
+        await ctx.respond(
+            f"Could not start FFmpeg streaming from '{device_name}': {exc}", ephemeral=True
+        )
         return
 
     logger.info(
@@ -280,14 +292,22 @@ async def stream(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
+    # The voice handshake takes longer than Discord's 3s interaction deadline,
+    # so acknowledge first; every later ctx.respond becomes a followup and keeps
+    # its own ephemeral flag.
+    await ctx.defer(ephemeral=True)
+
     voice_state = getattr(ctx.author, "voice", None)
     if voice_state is None or voice_state.channel is None:
-        await ctx.respond("You must be in a voice channel before starting a stream.")
+        await ctx.respond(
+            "You must be in a voice channel before starting a stream.", ephemeral=True
+        )
         return
 
     if ctx.voice_client is not None:
         await ctx.respond(
-            "Already streaming in a voice channel. Use `/stop` before starting again."
+            "Already streaming in a voice channel. Use `/stop` before starting again.",
+            ephemeral=True,
         )
         return
 
@@ -322,8 +342,10 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
+    await ctx.defer(ephemeral=True)
+
     if ctx.voice_client is None:
-        await ctx.respond("Not currently in a voice channel.")
+        await ctx.respond("Not currently in a voice channel.", ephemeral=True)
         return
     vc = ctx.voice_client
     if vc.is_playing():
@@ -346,18 +368,21 @@ async def status(ctx: discord.ApplicationContext) -> None:
         return
 
     if ctx.voice_client is None:
-        await ctx.respond("Not streaming. Use `/stream` from a voice channel to start.")
+        await ctx.respond(
+            "Not streaming. Use `/stream` from a voice channel to start.", ephemeral=True
+        )
         return
 
     vc = ctx.voice_client
     source = _active_sounddevice_source(vc)
     if source is not None:
         await ctx.respond(
-            f"Streaming from **{source.device_name}** with volume `{source.volume:g}`."
+            f"Streaming from **{source.device_name}** with volume `{source.volume:g}`.",
+            ephemeral=True,
         )
         return
 
-    await ctx.respond("Streaming via FFmpeg or another Discord audio source.")
+    await ctx.respond("Streaming via FFmpeg or another Discord audio source.", ephemeral=True)
 
 
 @bot.slash_command(
@@ -371,7 +396,7 @@ async def devices(ctx: discord.ApplicationContext) -> None:
 
     detected_devices = list_input_devices()
     logger.info("audio_devices_listed", extra={"count": len(detected_devices)})
-    await ctx.respond(_format_device_list(detected_devices))
+    await ctx.respond(_format_device_list(detected_devices), ephemeral=True)
 
 
 @bot.slash_command(
@@ -385,21 +410,23 @@ async def volume(ctx: discord.ApplicationContext, level: float | None = None) ->
         return
 
     if level is None:
-        await ctx.respond(f"Current configured volume is `{_effective_volume(s):g}`.")
+        await ctx.respond(
+            f"Current configured volume is `{_effective_volume(s):g}`.", ephemeral=True
+        )
         return
 
     if level < 0.0 or level > 5.0:
-        await ctx.respond("Volume must be between `0.0` and `5.0`.")
+        await ctx.respond("Volume must be between `0.0` and `5.0`.", ephemeral=True)
         return
 
     _set_volume_override(level)
     source = _active_sounddevice_source(ctx.voice_client) if ctx.voice_client is not None else None
     if source is not None:
         source.set_volume(level)
-        await ctx.respond(f"Updated active stream volume to `{level:g}`.")
+        await ctx.respond(f"Updated active stream volume to `{level:g}`.", ephemeral=True)
         return
 
-    await ctx.respond(f"Volume set to `{level:g}` for the next sounddevice stream.")
+    await ctx.respond(f"Volume set to `{level:g}` for the next sounddevice stream.", ephemeral=True)
 
 
 def main() -> None:

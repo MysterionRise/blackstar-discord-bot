@@ -3,6 +3,7 @@
 import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord.voice
 import pytest
 
 from blackstar_bot.audio_source import BlackstarAudioSource
@@ -12,6 +13,21 @@ from blackstar_bot.device_finder import AudioDevice
 
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
+
+_PLAY_SIGNATURE = inspect.signature(discord.voice.VoiceClient.play)
+
+
+def _play_mock():
+    """A play() mock that rejects arguments the real py-cord API would reject.
+
+    A bare MagicMock accepts anything, which let a non-existent ``signal_type``
+    keyword pass tests and fail at runtime.
+    """
+
+    def _validate(*args, **kwargs):
+        _PLAY_SIGNATURE.bind(MagicMock(), *args, **kwargs)
+
+    return MagicMock(side_effect=_validate)
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +109,7 @@ async def test_stream_command_uses_configured_device_only():
     """The streamed device always comes from configuration, never from the invoker."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     settings = _mock_settings()
@@ -176,7 +192,7 @@ async def test_stream_command_starts_sounddevice_stream():
     """The /stream command should start the primary sounddevice backend."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     source = MagicMock()
@@ -200,7 +216,7 @@ async def test_stream_command_starts_ffmpeg_backend():
     """The /stream command should support FFmpeg as an explicit fallback backend."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     settings = _mock_settings()
@@ -328,3 +344,150 @@ async def test_volume_command_updates_active_source():
     ctx.respond.assert_awaited_once()
     args = ctx.respond.await_args[0][0]
     assert "active stream" in args.lower()
+
+
+def _was_ephemeral(ctx):
+    """Return whether the last response was sent privately to the invoker."""
+    return ctx.respond.await_args.kwargs.get("ephemeral") is True
+
+
+@pytest.mark.asyncio
+async def test_devices_command_replies_privately():
+    """/devices lists local hardware, so it must never post to the channel."""
+    ctx = _make_ctx(in_voice=True)
+    with patch("blackstar_bot.bot_sounddevice.list_input_devices", return_value=[_fake_device()]):
+        await devices(ctx)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_status_command_replies_privately_when_streaming():
+    """/status names the capture device, so it stays private."""
+    vc = AsyncMock()
+    vc.source = BlackstarAudioSource(_fake_device(), volume=1.0)
+    ctx = _make_ctx(in_voice=True, voice_client=vc)
+    await status(ctx)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_volume_command_replies_privately():
+    """/volume is informational and only the owner can run it."""
+    ctx = _make_ctx(in_voice=True)
+    await volume(ctx, level=0.5)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_stream_failure_reply_is_private():
+    """Failure text can carry local paths from the exception, so keep it private."""
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    source = MagicMock()
+    source.start.side_effect = RuntimeError("/Users/someone/secret path")
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=source),
+    ):
+        await stream(ctx)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_successful_stream_and_stop_stay_public():
+    """Voice-channel members should see that a stream started and ended."""
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    vc.play = _play_mock()
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+    ):
+        await stream(ctx)
+    assert not _was_ephemeral(ctx)
+
+    stop_ctx = _make_ctx(in_voice=True, voice_client=vc)
+    await stop(stop_ctx)
+    assert not _was_ephemeral(stop_ctx)
+
+
+def test_playback_failure_notice_omits_exception_detail():
+    """The channel-wide failure notice must not leak exception text."""
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    captured = []
+
+    async def _noop():
+        return None
+
+    def _fake_send(_ctx, message):
+        captured.append(message)
+        return _noop()
+
+    with (
+        patch.object(bot_module, "_send_channel_message", _fake_send),
+        patch.object(bot_module, "bot") as fake_bot,
+    ):
+        fake_bot.loop.create_task = lambda coro: coro.close()
+        bot_module._after_playback(_make_ctx(), None, RuntimeError("/Users/someone/secret path"))
+
+    assert captured, "expected a channel notice"
+    assert "secret path" not in captured[0]
+    assert "see the bot log" in captured[0]
+
+
+@pytest.mark.parametrize("command", [stream, stop])
+@pytest.mark.asyncio
+async def test_slow_commands_defer_before_working(command):
+    """Voice work outlasts Discord's 3s deadline, so the interaction is acknowledged first."""
+    ctx = _make_ctx(in_voice=True)
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
+        patch("blackstar_bot.bot_sounddevice._connect_with_retry"),
+    ):
+        await command(ctx)
+
+    ctx.defer.assert_awaited_once_with(ephemeral=True)
+
+
+@pytest.mark.asyncio
+async def test_stream_defers_before_connecting():
+    """The defer must happen before the voice handshake, not after it."""
+    ctx = _make_ctx(in_voice=True)
+    order = []
+    ctx.defer = AsyncMock(side_effect=lambda **_: order.append("defer"))
+
+    async def _connect(_channel):
+        order.append("connect")
+        vc = AsyncMock()
+        vc.play = _play_mock()
+        return vc
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("blackstar_bot.bot_sounddevice._connect_with_retry", _connect),
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+    ):
+        await stream(ctx)
+
+    assert order == ["defer", "connect"]
+
+
+@pytest.mark.asyncio
+async def test_non_owner_is_refused_without_deferring():
+    """An unauthorized caller gets an immediate refusal, not a "thinking" state."""
+    ctx = _make_ctx(in_voice=True, author_id=INTRUDER_ID)
+    await stream(ctx)
+
+    ctx.defer.assert_not_awaited()
+    ctx.respond.assert_awaited_once_with(UNAUTHORIZED_MESSAGE, ephemeral=True)

@@ -22,8 +22,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Persistent audit log: refusals record the rejected user ID, written to stderr
   and a rotating file at `LOG_FILE` (default `blackstar-bot.log`)
 
+### Fixed
+
+- Require py-cord >= 2.8.0. Discord enforced the DAVE end-to-end-encryption
+  protocol on 2 March 2026 and closes voice websockets from older clients with
+  code 4017, so 2.7.x cannot join a voice channel at all
+- Corrected the local `VoiceClient` protocol to mirror py-cord's real `play()`
+  signature, so mypy checks calls against the actual API
+- `/stream` and `/stop` now defer the interaction before connecting to voice,
+  so Discord no longer reports "The application did not respond" while the
+  voice handshake is in flight
+
 ### Changed
 
+- Command replies that expose local hardware or exception text are now
+  ephemeral; only the stream start/stop notices remain visible to the channel
 - **Breaking:** `OWNER_ID` is now required; the bot fails to start without it
 - **Breaking:** `/stream` no longer accepts `device_name` or `backend`
   arguments — the input device and backend come from configuration only, so no

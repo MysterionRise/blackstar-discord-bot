@@ -67,13 +67,16 @@ async def stream(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
+    # The voice handshake outlasts Discord's 3s interaction deadline.
+    await ctx.defer(ephemeral=True)
+
     voice_state = getattr(ctx.author, "voice", None)
     if voice_state is None or voice_state.channel is None:
-        await ctx.respond("You must be in a voice channel first.")
+        await ctx.respond("You must be in a voice channel first.", ephemeral=True)
         return
 
     if ctx.voice_client is not None:
-        await ctx.respond("Already streaming. Use /stop first.")
+        await ctx.respond("Already streaming. Use /stop first.", ephemeral=True)
         return
 
     channel = voice_state.channel
@@ -95,8 +98,10 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
+    await ctx.defer(ephemeral=True)
+
     if ctx.voice_client is None:
-        await ctx.respond("Not currently in a voice channel.")
+        await ctx.respond("Not currently in a voice channel.", ephemeral=True)
         return
     vc = ctx.voice_client
     if vc.is_playing():

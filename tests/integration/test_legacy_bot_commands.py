@@ -1,7 +1,9 @@
 """Integration tests for the legacy FFmpeg bot entry point (mocked Discord client)."""
 
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord.voice
 import pytest
 
 from blackstar_bot.authz import UNAUTHORIZED_MESSAGE
@@ -9,6 +11,17 @@ from blackstar_bot.bot import stop, stream
 
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
+
+_PLAY_SIGNATURE = inspect.signature(discord.voice.VoiceClient.play)
+
+
+def _play_mock():
+    """A play() mock that rejects arguments the real py-cord API would reject."""
+
+    def _validate(*args, **kwargs):
+        _PLAY_SIGNATURE.bind(MagicMock(), *args, **kwargs)
+
+    return MagicMock(side_effect=_validate)
 
 
 def _mock_settings():
@@ -55,7 +68,7 @@ async def test_legacy_commands_reject_non_owner(command):
 async def test_legacy_stream_streams_configured_device_for_owner():
     """The owner streams the configured device — never one they supplied."""
     vc = AsyncMock()
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(voice_client=None)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     ffmpeg_source = MagicMock()
@@ -77,3 +90,39 @@ async def test_legacy_stream_requires_voice_channel():
     await stream(ctx)
     ctx.respond.assert_awaited_once()
     assert "voice channel" in ctx.respond.await_args[0][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_legacy_validation_reply_is_private():
+    """The "join a voice channel" nudge concerns only the invoker."""
+    ctx = _make_ctx()
+    ctx.author.voice = None
+    await stream(ctx)
+    assert ctx.respond.await_args.kwargs.get("ephemeral") is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_successful_stream_stays_public():
+    """Voice-channel members should see that a stream started."""
+    vc = AsyncMock()
+    vc.play = _play_mock()
+    ctx = _make_ctx()
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+
+    with patch("blackstar_bot.bot.discord.FFmpegPCMAudio", return_value=MagicMock()):
+        await stream(ctx)
+
+    assert ctx.respond.await_args.kwargs.get("ephemeral") is None
+
+
+@pytest.mark.parametrize("command", [stream, stop])
+@pytest.mark.asyncio
+async def test_legacy_slow_commands_defer(command):
+    """The legacy entry point must acknowledge before the voice handshake too."""
+    vc = AsyncMock()
+    vc.play = _play_mock()
+    ctx = _make_ctx()
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    with patch("blackstar_bot.bot.discord.FFmpegPCMAudio", return_value=MagicMock()):
+        await command(ctx)
+    ctx.defer.assert_awaited_once_with(ephemeral=True)
