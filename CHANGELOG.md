@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Playback no longer passes a `signal_type` argument that
+  `discord.VoiceClient.play` does not accept, which made every `/stream`
+  attempt fail with a `TypeError`; the music-encoding intent it expressed is
+  now applied through the Opus encoder instead
+- Corrected the local `VoiceClient` protocol, which declared the non-existent
+  parameter and so hid the error from mypy
 - `/stream` and `/stop` now defer the interaction before connecting to voice,
   so Discord no longer reports "The application did not respond" while the
   voice handshake is in flight

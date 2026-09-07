@@ -3,6 +3,7 @@
 import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
 from blackstar_bot.audio_source import BlackstarAudioSource
@@ -12,6 +13,21 @@ from blackstar_bot.device_finder import AudioDevice
 
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
+
+_PLAY_SIGNATURE = inspect.signature(discord.VoiceClient.play)
+
+
+def _play_mock():
+    """A play() mock that rejects arguments the real py-cord API would reject.
+
+    A bare MagicMock accepts anything, which let a non-existent ``signal_type``
+    keyword pass tests and fail at runtime.
+    """
+
+    def _validate(*args, **kwargs):
+        _PLAY_SIGNATURE.bind(MagicMock(), *args, **kwargs)
+
+    return MagicMock(side_effect=_validate)
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +109,7 @@ async def test_stream_command_uses_configured_device_only():
     """The streamed device always comes from configuration, never from the invoker."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     settings = _mock_settings()
@@ -176,7 +192,7 @@ async def test_stream_command_starts_sounddevice_stream():
     """The /stream command should start the primary sounddevice backend."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     source = MagicMock()
@@ -200,7 +216,7 @@ async def test_stream_command_starts_ffmpeg_backend():
     """The /stream command should support FFmpeg as an explicit fallback backend."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     settings = _mock_settings()
@@ -215,7 +231,6 @@ async def test_stream_command_starts_ffmpeg_backend():
 
     vc.play.assert_called_once_with(
         ffmpeg_source,
-        signal_type="music",
         after=vc.play.call_args.kwargs["after"],
     )
     ctx.respond.assert_awaited_once()
@@ -389,7 +404,7 @@ async def test_successful_stream_and_stop_stay_public():
     """Voice-channel members should see that a stream started and ended."""
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
-    vc.play = MagicMock()
+    vc.play = _play_mock()
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
 
@@ -454,7 +469,7 @@ async def test_stream_defers_before_connecting():
     async def _connect(_channel):
         order.append("connect")
         vc = AsyncMock()
-        vc.play = MagicMock()
+        vc.play = _play_mock()
         return vc
 
     with (
