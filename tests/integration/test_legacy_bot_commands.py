@@ -77,3 +77,26 @@ async def test_legacy_stream_requires_voice_channel():
     await stream(ctx)
     ctx.respond.assert_awaited_once()
     assert "voice channel" in ctx.respond.await_args[0][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_legacy_validation_reply_is_private():
+    """The "join a voice channel" nudge concerns only the invoker."""
+    ctx = _make_ctx()
+    ctx.author.voice = None
+    await stream(ctx)
+    assert ctx.respond.await_args.kwargs.get("ephemeral") is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_successful_stream_stays_public():
+    """Voice-channel members should see that a stream started."""
+    vc = AsyncMock()
+    vc.play = MagicMock()
+    ctx = _make_ctx()
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+
+    with patch("blackstar_bot.bot.discord.FFmpegPCMAudio", return_value=MagicMock()):
+        await stream(ctx)
+
+    assert ctx.respond.await_args.kwargs.get("ephemeral") is None

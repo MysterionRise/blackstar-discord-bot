@@ -92,6 +92,18 @@ can point the stream at another input on the host machine.
 The bot token is a full credential: keep `.env` out of version control, and
 reset the token in the Discord Developer Portal if it ever leaks.
 
+### Reply visibility
+
+Slash-command replies are public in the channel unless sent with
+`ephemeral=True`. Because `/devices` and `/status` name local audio hardware,
+and failure messages can carry filesystem paths from an exception, everything
+except the "streaming started" and "stopped streaming" notices is sent
+privately to the invoker. A private reply is labelled *Only you can see this*
+in Discord.
+
+The channel-wide notice posted when playback dies unexpectedly cannot be
+ephemeral, so it carries no exception detail — that stays in the log.
+
 ### Audit log
 
 Refused commands are logged as `unauthorized_command user_id=... command=...`,

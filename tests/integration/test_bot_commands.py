@@ -328,3 +328,103 @@ async def test_volume_command_updates_active_source():
     ctx.respond.assert_awaited_once()
     args = ctx.respond.await_args[0][0]
     assert "active stream" in args.lower()
+
+
+def _was_ephemeral(ctx):
+    """Return whether the last response was sent privately to the invoker."""
+    return ctx.respond.await_args.kwargs.get("ephemeral") is True
+
+
+@pytest.mark.asyncio
+async def test_devices_command_replies_privately():
+    """/devices lists local hardware, so it must never post to the channel."""
+    ctx = _make_ctx(in_voice=True)
+    with patch("blackstar_bot.bot_sounddevice.list_input_devices", return_value=[_fake_device()]):
+        await devices(ctx)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_status_command_replies_privately_when_streaming():
+    """/status names the capture device, so it stays private."""
+    vc = AsyncMock()
+    vc.source = BlackstarAudioSource(_fake_device(), volume=1.0)
+    ctx = _make_ctx(in_voice=True, voice_client=vc)
+    await status(ctx)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_volume_command_replies_privately():
+    """/volume is informational and only the owner can run it."""
+    ctx = _make_ctx(in_voice=True)
+    await volume(ctx, level=0.5)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_stream_failure_reply_is_private():
+    """Failure text can carry local paths from the exception, so keep it private."""
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    source = MagicMock()
+    source.start.side_effect = RuntimeError("/Users/someone/secret path")
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=source),
+    ):
+        await stream(ctx)
+
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_successful_stream_and_stop_stay_public():
+    """Voice-channel members should see that a stream started and ended."""
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    vc.play = MagicMock()
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+    ):
+        await stream(ctx)
+    assert not _was_ephemeral(ctx)
+
+    stop_ctx = _make_ctx(in_voice=True, voice_client=vc)
+    await stop(stop_ctx)
+    assert not _was_ephemeral(stop_ctx)
+
+
+def test_playback_failure_notice_omits_exception_detail():
+    """The channel-wide failure notice must not leak exception text."""
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    captured = []
+
+    async def _noop():
+        return None
+
+    def _fake_send(_ctx, message):
+        captured.append(message)
+        return _noop()
+
+    with (
+        patch.object(bot_module, "_send_channel_message", _fake_send),
+        patch.object(bot_module, "bot") as fake_bot,
+    ):
+        fake_bot.loop.create_task = lambda coro: coro.close()
+        bot_module._after_playback(_make_ctx(), None, RuntimeError("/Users/someone/secret path"))
+
+    assert captured, "expected a channel notice"
+    assert "secret path" not in captured[0]
+    assert "see the bot log" in captured[0]

@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Command replies that expose local hardware or exception text are now
+  ephemeral; only the stream start/stop notices remain visible to the channel
 - **Breaking:** `OWNER_ID` is now required; the bot fails to start without it
 - **Breaking:** `/stream` no longer accepts `device_name` or `backend`
   arguments — the input device and backend come from configuration only, so no
