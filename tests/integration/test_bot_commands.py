@@ -428,3 +428,50 @@ def test_playback_failure_notice_omits_exception_detail():
     assert captured, "expected a channel notice"
     assert "secret path" not in captured[0]
     assert "see the bot log" in captured[0]
+
+
+@pytest.mark.parametrize("command", [stream, stop])
+@pytest.mark.asyncio
+async def test_slow_commands_defer_before_working(command):
+    """Voice work outlasts Discord's 3s deadline, so the interaction is acknowledged first."""
+    ctx = _make_ctx(in_voice=True)
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
+        patch("blackstar_bot.bot_sounddevice._connect_with_retry"),
+    ):
+        await command(ctx)
+
+    ctx.defer.assert_awaited_once_with(ephemeral=True)
+
+
+@pytest.mark.asyncio
+async def test_stream_defers_before_connecting():
+    """The defer must happen before the voice handshake, not after it."""
+    ctx = _make_ctx(in_voice=True)
+    order = []
+    ctx.defer = AsyncMock(side_effect=lambda **_: order.append("defer"))
+
+    async def _connect(_channel):
+        order.append("connect")
+        vc = AsyncMock()
+        vc.play = MagicMock()
+        return vc
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("blackstar_bot.bot_sounddevice._connect_with_retry", _connect),
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+    ):
+        await stream(ctx)
+
+    assert order == ["defer", "connect"]
+
+
+@pytest.mark.asyncio
+async def test_non_owner_is_refused_without_deferring():
+    """An unauthorized caller gets an immediate refusal, not a "thinking" state."""
+    ctx = _make_ctx(in_voice=True, author_id=INTRUDER_ID)
+    await stream(ctx)
+
+    ctx.defer.assert_not_awaited()
+    ctx.respond.assert_awaited_once_with(UNAUTHORIZED_MESSAGE, ephemeral=True)

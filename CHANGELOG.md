@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Persistent audit log: refusals record the rejected user ID, written to stderr
   and a rotating file at `LOG_FILE` (default `blackstar-bot.log`)
 
+### Fixed
+
+- `/stream` and `/stop` now defer the interaction before connecting to voice,
+  so Discord no longer reports "The application did not respond" while the
+  voice handshake is in flight
+
 ### Changed
 
 - Command replies that expose local hardware or exception text are now

@@ -100,3 +100,16 @@ async def test_legacy_successful_stream_stays_public():
         await stream(ctx)
 
     assert ctx.respond.await_args.kwargs.get("ephemeral") is None
+
+
+@pytest.mark.parametrize("command", [stream, stop])
+@pytest.mark.asyncio
+async def test_legacy_slow_commands_defer(command):
+    """The legacy entry point must acknowledge before the voice handshake too."""
+    vc = AsyncMock()
+    vc.play = MagicMock()
+    ctx = _make_ctx()
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    with patch("blackstar_bot.bot.discord.FFmpegPCMAudio", return_value=MagicMock()):
+        await command(ctx)
+    ctx.defer.assert_awaited_once_with(ephemeral=True)

@@ -285,6 +285,11 @@ async def stream(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
+    # The voice handshake takes longer than Discord's 3s interaction deadline,
+    # so acknowledge first; every later ctx.respond becomes a followup and keeps
+    # its own ephemeral flag.
+    await ctx.defer(ephemeral=True)
+
     voice_state = getattr(ctx.author, "voice", None)
     if voice_state is None or voice_state.channel is None:
         await ctx.respond(
@@ -329,6 +334,8 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     """Stop playback and disconnect from the voice channel."""
     if not await require_owner(ctx, _get_settings().owner_id):
         return
+
+    await ctx.defer(ephemeral=True)
 
     if ctx.voice_client is None:
         await ctx.respond("Not currently in a voice channel.", ephemeral=True)
