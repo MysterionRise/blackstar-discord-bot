@@ -24,12 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Playback no longer passes a `signal_type` argument that
-  `discord.VoiceClient.play` does not accept, which made every `/stream`
-  attempt fail with a `TypeError`; the music-encoding intent it expressed is
-  now applied through the Opus encoder instead
-- Corrected the local `VoiceClient` protocol, which declared the non-existent
-  parameter and so hid the error from mypy
+- Require py-cord >= 2.8.0. Discord enforced the DAVE end-to-end-encryption
+  protocol on 2 March 2026 and closes voice websockets from older clients with
+  code 4017, so 2.7.x cannot join a voice channel at all
+- Corrected the local `VoiceClient` protocol to mirror py-cord's real `play()`
+  signature, so mypy checks calls against the actual API
 - `/stream` and `/stop` now defer the interaction before connecting to voice,
   so Discord no longer reports "The application did not respond" while the
   voice handshake is in flight

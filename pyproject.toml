@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
-  "py-cord[voice]>=2.7.0",
+  "py-cord[voice]>=2.8.0",  # 2.8 adds DAVE E2EE; Discord rejects older clients with 4017
   "python-dotenv>=1.0.0",
   "pydantic-settings>=2.3.0",
   "sounddevice>=0.4.6",

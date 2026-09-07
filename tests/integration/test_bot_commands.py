@@ -3,7 +3,7 @@
 import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import discord
+import discord.voice
 import pytest
 
 from blackstar_bot.audio_source import BlackstarAudioSource
@@ -14,7 +14,7 @@ from blackstar_bot.device_finder import AudioDevice
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
 
-_PLAY_SIGNATURE = inspect.signature(discord.VoiceClient.play)
+_PLAY_SIGNATURE = inspect.signature(discord.voice.VoiceClient.play)
 
 
 def _play_mock():
@@ -231,6 +231,7 @@ async def test_stream_command_starts_ffmpeg_backend():
 
     vc.play.assert_called_once_with(
         ffmpeg_source,
+        signal_type="music",
         after=vc.play.call_args.kwargs["after"],
     )
     ctx.respond.assert_awaited_once()

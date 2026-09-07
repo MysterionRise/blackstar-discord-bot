@@ -3,7 +3,7 @@
 import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import discord
+import discord.voice
 import pytest
 
 from blackstar_bot.authz import UNAUTHORIZED_MESSAGE
@@ -12,7 +12,7 @@ from blackstar_bot.bot import stop, stream
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
 
-_PLAY_SIGNATURE = inspect.signature(discord.VoiceClient.play)
+_PLAY_SIGNATURE = inspect.signature(discord.voice.VoiceClient.play)
 
 
 def _play_mock():

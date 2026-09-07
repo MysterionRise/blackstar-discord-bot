@@ -57,14 +57,16 @@ class VoiceClient(Protocol):
         self,
         source: object,
         *,
+        signal_type: str = "auto",
         after: object | None = None,
         wait_finish: bool = False,
     ) -> None:
         """Start audio playback.
 
-        Mirrors ``discord.VoiceClient.play``. Keep this in step with py-cord:
-        a parameter here that the library does not have makes mypy validate
-        calls against an API that does not exist.
+        Mirrors ``discord.voice.VoiceClient.play``. Keep this in step with
+        py-cord: a parameter here that the library does not have makes mypy
+        validate calls against an API that does not exist. ``signal_type``
+        requires py-cord >= 2.8.
         """
         ...
 
@@ -116,22 +118,6 @@ def _active_sounddevice_source(voice_client: object) -> BlackstarAudioSource | N
     if isinstance(source, BlackstarAudioSource):
         return source
     return None
-
-
-def _prepare_music_encoder(voice_client: object) -> None:
-    """Ask Opus to encode as music rather than speech.
-
-    ``VoiceClient.play`` builds a default (auto) encoder only when one is not
-    already set, so installing ours first wins. Guitar through a speech-tuned
-    encoder sounds bad, but it still sounds; a missing libopus must not stop the
-    stream, so failures here are logged and ignored.
-    """
-    try:
-        encoder = discord.opus.Encoder()
-        encoder.set_signal_type("music")
-        voice_client.encoder = encoder  # type: ignore[attr-defined]
-    except Exception:
-        logger.warning("music_encoder_unavailable", exc_info=True)
 
 
 async def _connect_with_retry(channel: VoiceChannel) -> VoiceClient:
@@ -208,9 +194,9 @@ async def _start_sounddevice_stream(
         voice_client = await _connect_with_retry(channel)
         source = BlackstarAudioSource(device, volume=volume)
         source.start()
-        _prepare_music_encoder(voice_client)
         voice_client.play(
             source,
+            signal_type="music",
             after=lambda error: _after_playback(ctx, source, error),
         )
     except Exception as exc:
@@ -243,9 +229,9 @@ async def _start_ffmpeg_stream(
         voice_client = await _connect_with_retry(channel)
         input_source, before_options = _ffmpeg_input_args(device_name)
         source = discord.FFmpegPCMAudio(input_source, before_options=before_options)
-        _prepare_music_encoder(voice_client)
         voice_client.play(
             source,
+            signal_type="music",
             after=lambda error: _after_playback(ctx, None, error),
         )
     except Exception as exc:

@@ -85,7 +85,7 @@ async def stream(ctx: discord.ApplicationContext) -> None:
     s = _get_settings()
     input_source, before_options = _ffmpeg_input_args(s.audio_device)
     source = discord.FFmpegPCMAudio(input_source, before_options=before_options)
-    voice_client.play(source)
+    voice_client.play(source, signal_type="music")
     await ctx.respond(f"Streaming audio from **{s.audio_device}** in {channel.name}.")
 
 

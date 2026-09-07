@@ -13,6 +13,9 @@ Python bot that streams guitar audio from a Blackstar USB amp into a Discord voi
 ## Requirements
 
 - Python 3.12+
+- py-cord 2.8+ (earlier versions cannot connect to voice: Discord has
+  enforced the DAVE end-to-end-encryption protocol since 2 March 2026 and
+  closes voice websockets from older clients with code 4017)
 - macOS (for USB audio capture from Blackstar amp)
 - PortAudio (primary sounddevice backend)
 - FFmpeg (optional fallback backend)
