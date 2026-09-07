@@ -1,9 +1,11 @@
 """Tests for blackstar_bot.bot helpers."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from pydantic import ValidationError
 
 from blackstar_bot.bot import _ffmpeg_input_args
-from blackstar_bot.bot_sounddevice import _format_device_list, _normalize_backend
+from blackstar_bot.bot_sounddevice import _format_device_list, _resolve_guild_ids
 from blackstar_bot.device_finder import AudioDevice
 
 
@@ -31,13 +33,25 @@ def test_ffmpeg_input_args_win32():
     assert "dshow" in opts
 
 
-def test_normalize_backend_accepts_supported_values():
-    assert _normalize_backend("sounddevice") == "sounddevice"
-    assert _normalize_backend("FFmpeg") == "ffmpeg"
+def test_resolve_guild_ids_scopes_commands_to_configured_guild():
+    settings = MagicMock()
+    settings.guild_id = 123456789012345678
+    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings):
+        assert _resolve_guild_ids() == [123456789012345678]
 
 
-def test_normalize_backend_rejects_unknown_values():
-    assert _normalize_backend("alsa") is None
+def test_resolve_guild_ids_returns_none_when_unset():
+    settings = MagicMock()
+    settings.guild_id = None
+    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings):
+        assert _resolve_guild_ids() is None
+
+
+def test_resolve_guild_ids_tolerates_unreadable_settings():
+    """Import-time evaluation must not raise when the environment is incomplete."""
+    error = ValidationError.from_exception_data("Settings", [])
+    with patch("blackstar_bot.bot_sounddevice._get_settings", side_effect=error):
+        assert _resolve_guild_ids() is None
 
 
 def test_format_device_list_handles_empty_list():

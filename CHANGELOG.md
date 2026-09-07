@@ -16,3 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Claude Code agentic team configuration (orchestrator + 4 specialist agents)
 - Runtime backend selection, device listing, status, and volume slash commands
 - Safer stream startup cleanup, voice connect retry, and playback diagnostics
+- Owner-only authorization: all slash commands require `OWNER_ID` and refuse
+  everyone else with a private reply
+- Optional `GUILD_ID` scoping so slash commands register in one server only
+- Persistent audit log: refusals record the rejected user ID, written to stderr
+  and a rotating file at `LOG_FILE` (default `blackstar-bot.log`)
+
+### Changed
+
+- **Breaking:** `OWNER_ID` is now required; the bot fails to start without it
+- **Breaking:** `/stream` no longer accepts `device_name` or `backend`
+  arguments — the input device and backend come from configuration only, so no
+  Discord user can redirect the stream to another local input

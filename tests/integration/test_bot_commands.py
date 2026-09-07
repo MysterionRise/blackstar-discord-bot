@@ -1,12 +1,17 @@
 """Integration tests for bot commands (mocked Discord client)."""
 
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from blackstar_bot.audio_source import BlackstarAudioSource
+from blackstar_bot.authz import UNAUTHORIZED_MESSAGE
 from blackstar_bot.bot_sounddevice import devices, status, stop, stream, volume
 from blackstar_bot.device_finder import AudioDevice
+
+OWNER_ID = 424242424242424242
+INTRUDER_ID = 999999999999999999
 
 
 @pytest.fixture(autouse=True)
@@ -15,14 +20,18 @@ def reset_runtime_state():
     import blackstar_bot.bot_sounddevice as bot_module
 
     bot_module._volume_override = None
+    bot_module._settings = _mock_settings()
     yield
     bot_module._volume_override = None
+    bot_module._settings = None
 
 
-def _make_ctx(*, in_voice=True, voice_client=None):
-    """Create a mock ApplicationContext."""
+def _make_ctx(*, in_voice=True, voice_client=None, author_id=OWNER_ID):
+    """Create a mock ApplicationContext, owned by the configured owner by default."""
     ctx = AsyncMock()
     ctx.channel.send = AsyncMock()
+    ctx.author = MagicMock()
+    ctx.author.id = author_id
     if in_voice:
         ctx.author.voice.channel = AsyncMock()
         ctx.author.voice.channel.name = "General"
@@ -36,6 +45,8 @@ def _make_ctx(*, in_voice=True, voice_client=None):
 def _mock_settings():
     """Create a mock Settings object."""
     s = MagicMock()
+    s.owner_id = OWNER_ID
+    s.guild_id = 123456789012345678
     s.audio_device = "Blackstar"
     s.audio_backend = "sounddevice"
     s.debug_config = False
@@ -51,6 +62,53 @@ def _fake_device() -> AudioDevice:
         max_input_channels=2,
         default_samplerate=48000.0,
     )
+
+
+@pytest.mark.parametrize("command", [stream, stop, status, devices, volume])
+@pytest.mark.asyncio
+async def test_commands_reject_non_owner(command):
+    """Every command must refuse anyone but the configured owner."""
+    ctx = _make_ctx(in_voice=True, author_id=INTRUDER_ID)
+
+    with (
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name") as find_device,
+        patch("blackstar_bot.bot_sounddevice.list_input_devices") as list_devices,
+    ):
+        await command(ctx)
+
+    ctx.respond.assert_awaited_once_with(UNAUTHORIZED_MESSAGE, ephemeral=True)
+    ctx.author.voice.channel.connect.assert_not_awaited()
+    find_device.assert_not_called()
+    list_devices.assert_not_called()
+
+
+def test_stream_command_does_not_accept_device_override():
+    """/stream must expose no parameters that could select another input device."""
+    assert [option.name for option in stream.options] == []
+    assert list(inspect.signature(stream.callback).parameters) == ["ctx"]
+
+
+@pytest.mark.asyncio
+async def test_stream_command_uses_configured_device_only():
+    """The streamed device always comes from configuration, never from the invoker."""
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    vc.play = MagicMock()
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    settings = _mock_settings()
+    settings.audio_device = "Blackstar"
+
+    with (
+        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch(
+            "blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()
+        ) as find_device,
+        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+    ):
+        await stream(ctx)
+
+    find_device.assert_called_once_with("Blackstar")
 
 
 @pytest.mark.asyncio
@@ -87,17 +145,6 @@ async def test_stream_command_device_not_found():
     args = ctx.respond.await_args[0][0]
     assert "not found" in args.lower()
     assert "/devices" in args
-
-
-@pytest.mark.asyncio
-async def test_stream_command_rejects_unknown_backend():
-    """The /stream command should validate explicit backend choices."""
-    ctx = _make_ctx(in_voice=True)
-    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()):
-        await stream(ctx, backend="unknown")
-    ctx.respond.assert_awaited_once()
-    args = ctx.respond.await_args[0][0]
-    assert "unknown backend" in args.lower()
 
 
 @pytest.mark.asyncio
@@ -157,13 +204,14 @@ async def test_stream_command_starts_ffmpeg_backend():
     ctx = _make_ctx(in_voice=True)
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
     settings = _mock_settings()
+    settings.audio_backend = "ffmpeg"
     ffmpeg_source = MagicMock()
 
     with (
         patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings),
         patch("blackstar_bot.bot_sounddevice.discord.FFmpegPCMAudio", return_value=ffmpeg_source),
     ):
-        await stream(ctx, backend="ffmpeg")
+        await stream(ctx)
 
     vc.play.assert_called_once_with(
         ffmpeg_source,
