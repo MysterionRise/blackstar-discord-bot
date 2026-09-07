@@ -9,10 +9,13 @@ import sys
 from typing import Any, Protocol
 
 import discord
+from pydantic import ValidationError
 
 from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.config import AudioBackend, Settings
+from blackstar_bot.authz import require_owner
+from blackstar_bot.config import Settings
 from blackstar_bot.device_finder import AudioDevice, find_device_by_name, list_input_devices
+from blackstar_bot.logging_setup import configure_logging
 
 logger = logging.getLogger(__name__)
 _settings: Settings | None = None
@@ -77,21 +80,6 @@ def _effective_volume(settings: Settings) -> float:
     if _volume_override is not None:
         return _volume_override
     return settings.volume
-
-
-def _normalize_backend(value: str) -> AudioBackend | None:
-    backend = value.strip().lower()
-    if backend == "sounddevice":
-        return "sounddevice"
-    if backend == "ffmpeg":
-        return "ffmpeg"
-    return None
-
-
-def _select_backend(settings: Settings, requested_backend: str | None) -> AudioBackend | None:
-    if requested_backend is not None:
-        return _normalize_backend(requested_backend)
-    return settings.audio_backend
 
 
 def _ffmpeg_input_args(device_name: str) -> tuple[str, str]:
@@ -258,6 +246,22 @@ async def _start_ffmpeg_stream(
     await ctx.respond(f"Streaming audio from **{device_name}** via FFmpeg in {channel.name}.")
 
 
+def _resolve_guild_ids() -> list[int] | None:
+    """Return the guild scope for slash-command registration, or None for global.
+
+    Evaluated at import time because py-cord's decorators need ``guild_ids``
+    then, so an unreadable configuration must not raise here — ``main()``
+    surfaces the real error and warns about the missing scope.
+    """
+    try:
+        guild_id = _get_settings().guild_id
+    except ValidationError:
+        return None
+    return None if guild_id is None else [guild_id]
+
+
+GUILD_IDS = _resolve_guild_ids()
+
 bot: Any = discord.Bot(intents=discord.Intents.default())
 
 
@@ -267,13 +271,15 @@ async def on_ready() -> None:
     logger.info("Logged in as %s (id=%s)", bot.user, bot.user.id if bot.user else "?")
 
 
-@bot.slash_command(description="Stream Blackstar amp audio into your voice channel")
-async def stream(
-    ctx: discord.ApplicationContext,
-    device_name: str | None = None,
-    backend: str | None = None,
-) -> None:
-    """Join the user's voice channel and start streaming audio."""
+@bot.slash_command(
+    description="Stream Blackstar amp audio into your voice channel",
+    guild_ids=GUILD_IDS,
+)
+async def stream(ctx: discord.ApplicationContext) -> None:
+    """Join the owner's voice channel and start streaming the configured audio device."""
+    if not await require_owner(ctx, _get_settings().owner_id):
+        return
+
     voice_state = getattr(ctx.author, "voice", None)
     if voice_state is None or voice_state.channel is None:
         await ctx.respond("You must be in a voice channel before starting a stream.")
@@ -286,12 +292,8 @@ async def stream(
         return
 
     s = _get_settings()
-    selected_backend = _select_backend(s, backend)
-    if selected_backend is None:
-        await ctx.respond("Unknown backend. Use `sounddevice` or `ffmpeg`.")
-        return
-
-    selected_device = device_name or s.audio_device
+    selected_backend = s.audio_backend
+    selected_device = s.audio_device
     channel = voice_state.channel
 
     if s.debug_config:
@@ -311,9 +313,15 @@ async def stream(
     await _start_ffmpeg_stream(ctx, channel, selected_device)
 
 
-@bot.slash_command(description="Stop streaming and leave the voice channel")
+@bot.slash_command(
+    description="Stop streaming and leave the voice channel",
+    guild_ids=GUILD_IDS,
+)
 async def stop(ctx: discord.ApplicationContext) -> None:
     """Stop playback and disconnect from the voice channel."""
+    if not await require_owner(ctx, _get_settings().owner_id):
+        return
+
     if ctx.voice_client is None:
         await ctx.respond("Not currently in a voice channel.")
         return
@@ -328,9 +336,15 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     await ctx.respond("Stopped streaming.")
 
 
-@bot.slash_command(description="Show the current streaming status")
+@bot.slash_command(
+    description="Show the current streaming status",
+    guild_ids=GUILD_IDS,
+)
 async def status(ctx: discord.ApplicationContext) -> None:
     """Report whether the bot is currently streaming."""
+    if not await require_owner(ctx, _get_settings().owner_id):
+        return
+
     if ctx.voice_client is None:
         await ctx.respond("Not streaming. Use `/stream` from a voice channel to start.")
         return
@@ -346,18 +360,30 @@ async def status(ctx: discord.ApplicationContext) -> None:
     await ctx.respond("Streaming via FFmpeg or another Discord audio source.")
 
 
-@bot.slash_command(description="List detected audio input devices")
+@bot.slash_command(
+    description="List detected audio input devices",
+    guild_ids=GUILD_IDS,
+)
 async def devices(ctx: discord.ApplicationContext) -> None:
     """List available local audio input devices."""
+    if not await require_owner(ctx, _get_settings().owner_id):
+        return
+
     detected_devices = list_input_devices()
     logger.info("audio_devices_listed", extra={"count": len(detected_devices)})
     await ctx.respond(_format_device_list(detected_devices))
 
 
-@bot.slash_command(description="Show or change the current stream volume")
+@bot.slash_command(
+    description="Show or change the current stream volume",
+    guild_ids=GUILD_IDS,
+)
 async def volume(ctx: discord.ApplicationContext, level: float | None = None) -> None:
     """Show or change the sounddevice playback volume."""
     s = _get_settings()
+    if not await require_owner(ctx, s.owner_id):
+        return
+
     if level is None:
         await ctx.respond(f"Current configured volume is `{_effective_volume(s):g}`.")
         return
@@ -378,8 +404,20 @@ async def volume(ctx: discord.ApplicationContext, level: float | None = None) ->
 
 def main() -> None:
     """Entry point for running the bot."""
-    logging.basicConfig(level=logging.INFO)
-    bot.run(_get_settings().discord_token)
+    settings = _get_settings()
+    configure_logging(settings)
+    if settings.guild_id is None:
+        logger.warning(
+            "guild_scope_missing: commands are registered globally; "
+            "set GUILD_ID to register them in a single server only"
+        )
+    elif GUILD_IDS is None:
+        logger.warning(
+            "guild_scope_unavailable: GUILD_ID was not readable when commands were "
+            "registered, so they are registered globally; run from the directory "
+            "holding your .env file"
+        )
+    bot.run(settings.discord_token)
 
 
 if __name__ == "__main__":
