@@ -107,6 +107,33 @@ in Discord.
 The channel-wide notice posted when playback dies unexpectedly cannot be
 ephemeral, so it carries no exception detail — that stays in the log.
 
+### Capture device safety
+
+Only audio that can be positively attributed to `AUDIO_DEVICE` is ever sent to
+Discord. This matters because PortAudio caches its device list and identifies
+devices by positional index: when the amp is unplugged, its index can be
+reassigned to another input, and a naive capture would quietly continue on the
+built-in microphone and broadcast the room.
+
+The sounddevice backend therefore:
+
+- re-enumerates devices before opening a stream, so an already-unplugged amp is
+  not matched from a stale list;
+- verifies the live device name at the index it just opened, and refuses to
+  stream on a mismatch;
+- mutes capture — sending silence, never substitute audio — as soon as the
+  device stops delivering frames, the stream is aborted, or PortAudio reports an
+  error;
+- re-acquires the amp **by name** and resumes automatically, so a knocked cable
+  needs no new `/stream`. `/status` reports this state;
+- gives up after 60 seconds, stops the stream, leaves the voice channel, and
+  posts a channel notice that deliberately does not name your hardware.
+
+The FFmpeg backend passes the device name to FFmpeg, which fails rather than
+capturing a different input, so it does not leak either — but it does not
+re-acquire the device. `AUDIO_BACKEND=sounddevice`, the default, is the
+supported path.
+
 ### Audit log
 
 Refused commands are logged as `unauthorized_command user_id=... command=...`,

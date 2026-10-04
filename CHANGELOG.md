@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Persistent audit log: refusals record the rejected user ID, written to stderr
   and a rotating file at `LOG_FILE` (default `blackstar-bot.log`)
 
+### Security
+
+- **Capture no longer falls through to another input device.** When the amp was
+  unplugged mid-stream, PortAudio's cached device list and positional indices
+  meant the stream could end up on whatever took the amp's index — typically the
+  built-in microphone — and the bot kept broadcasting the room to the voice
+  channel. The device name is now the identity and the index only a handle: the
+  device list is re-enumerated before a stream opens, the live name at the
+  opened index is verified, and any loss of the device mutes capture
+  immediately. A watchdog then re-acquires the amp by name and resumes audio,
+  giving up after 60 seconds and stopping the stream
+
 ### Fixed
 
 - Require py-cord >= 2.8.0. Discord enforced the DAVE end-to-end-encryption

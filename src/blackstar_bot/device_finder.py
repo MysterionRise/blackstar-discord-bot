@@ -49,3 +49,40 @@ def find_device_by_name(name: str) -> AudioDevice | None:
         if needle in device.name.lower():
             return device
     return None
+
+
+def refresh_devices() -> None:
+    """Re-enumerate PortAudio devices so hot-plug changes become visible.
+
+    PortAudio builds its device list once at initialization, so an unplugged
+    amp keeps being reported and its index can meanwhile belong to another
+    device — a built-in microphone, for instance. Reinitializing is the only
+    way to refresh the list.
+
+    Must be called with no stream open: reinitializing PortAudio underneath a
+    live stream is undefined behaviour.
+    """
+    try:
+        sd._terminate()
+        sd._initialize()
+    except Exception:
+        # Non-fatal: callers fall back to the cached list, and the identity
+        # check at stream-open time still refuses a mismatched device.
+        logger.warning("portaudio_refresh_failed", exc_info=True)
+
+
+def live_device_name(index: int) -> str | None:
+    """Return the name PortAudio currently reports at *index*, or None.
+
+    Device indices are positional and shift when devices come and go, so this
+    is what makes it possible to confirm an opened stream is the intended
+    hardware rather than whatever now occupies the index.
+    """
+    try:
+        info: Any = sd.query_devices(index)
+    except Exception:
+        logger.warning("portaudio_query_failed index=%s", index, exc_info=True)
+        return None
+
+    name = info.get("name") if hasattr(info, "get") else None
+    return name if isinstance(name, str) else None

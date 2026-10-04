@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 import sys
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import discord
 from pydantic import ValidationError
@@ -14,8 +14,16 @@ from pydantic import ValidationError
 from blackstar_bot.audio_source import BlackstarAudioSource
 from blackstar_bot.authz import require_owner
 from blackstar_bot.config import Settings
-from blackstar_bot.device_finder import AudioDevice, find_device_by_name, list_input_devices
+from blackstar_bot.device_finder import (
+    AudioDevice,
+    find_device_by_name,
+    list_input_devices,
+    refresh_devices,
+)
 from blackstar_bot.logging_setup import configure_logging
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 logger = logging.getLogger(__name__)
 _settings: Settings | None = None
@@ -156,6 +164,41 @@ async def _send_channel_message(ctx: discord.ApplicationContext, message: str) -
         await send(message)
 
 
+def _schedule_on_loop(coro: Coroutine[Any, Any, None]) -> None:
+    """Run *coro* on the bot's event loop from a non-loop thread.
+
+    Playback callbacks and the device watchdog both run on their own threads,
+    where ``loop.create_task`` is not thread-safe.
+    """
+    loop = getattr(bot, "loop", None)
+    if loop is None:
+        coro.close()
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(coro, loop)
+    except Exception:
+        coro.close()
+        logger.warning("loop_schedule_failed", exc_info=True)
+
+
+async def _handle_device_unavailable(
+    ctx: discord.ApplicationContext, voice_client: VoiceClient
+) -> None:
+    """Tear down the stream after the capture device stayed gone."""
+    source = _active_sounddevice_source(voice_client)
+    with contextlib.suppress(Exception):
+        if voice_client.is_playing():
+            voice_client.stop()
+    if source is not None:
+        source.cleanup()
+    await _disconnect_quietly(voice_client)
+    # Deliberately no device name: this notice is public, and device names are
+    # treated as private (that is why /devices replies ephemerally).
+    await _send_channel_message(
+        ctx, "Audio device was lost, so streaming stopped. See the bot log for details."
+    )
+
+
 def _after_playback(
     ctx: discord.ApplicationContext,
     source: BlackstarAudioSource | None,
@@ -166,10 +209,7 @@ def _after_playback(
     if error is None:
         return
     logger.error("playback_error", extra={"error": str(error)}, exc_info=error)
-    with contextlib.suppress(Exception):
-        bot.loop.create_task(
-            _send_channel_message(ctx, "Playback stopped unexpectedly; see the bot log.")
-        )
+    _schedule_on_loop(_send_channel_message(ctx, "Playback stopped unexpectedly; see the bot log."))
 
 
 async def _start_sounddevice_stream(
@@ -178,6 +218,9 @@ async def _start_sounddevice_stream(
     device_name: str,
     volume: float,
 ) -> None:
+    # PortAudio caches its device list, so an already-unplugged amp can still
+    # be listed with an index that now belongs to another input.
+    refresh_devices()
     device = find_device_by_name(device_name)
     if device is None:
         logger.info("audio_device_not_found", extra={"device_query": device_name})
@@ -192,7 +235,13 @@ async def _start_sounddevice_stream(
     source: BlackstarAudioSource | None = None
     try:
         voice_client = await _connect_with_retry(channel)
-        source = BlackstarAudioSource(device, volume=volume)
+        connected = voice_client
+        source = BlackstarAudioSource(
+            device,
+            volume=volume,
+            device_query=device_name,
+            on_unavailable=lambda: _schedule_on_loop(_handle_device_unavailable(ctx, connected)),
+        )
         source.start()
         voice_client.play(
             source,
@@ -376,6 +425,13 @@ async def status(ctx: discord.ApplicationContext) -> None:
     vc = ctx.voice_client
     source = _active_sounddevice_source(vc)
     if source is not None:
+        if source.state == "reacquiring":
+            await ctx.respond(
+                "Audio device was lost — muted and re-acquiring it. "
+                "Audio resumes automatically if it comes back.",
+                ephemeral=True,
+            )
+            return
         await ctx.respond(
             f"Streaming from **{source.device_name}** with volume `{source.volume:g}`.",
             ephemeral=True,
