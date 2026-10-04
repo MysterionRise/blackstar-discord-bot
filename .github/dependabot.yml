@@ -20,3 +20,6 @@ updates:
       interval: weekly
       day: monday
     labels: ["dependencies", "ci"]
+    groups:
+      actions:
+        patterns: ["*"]
