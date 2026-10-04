@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import discord
 
@@ -17,13 +17,13 @@ INVITE_PERMISSIONS = discord.Permissions(connect=True, speak=True)
 INVITE_SCOPES = ("bot", "applications.commands")
 
 
-async def announce_startup(bot: Any, settings: Settings) -> None:
+async def announce_startup(bot: discord.Bot, settings: Settings) -> None:
     """Log who may control this instance, and the link that invites it."""
     await resolve_owner(bot, settings)
     log_invite_url(bot)
 
 
-async def resolve_owner(bot: Any, settings: Settings) -> None:
+async def resolve_owner(bot: discord.Bot, settings: Settings) -> None:
     """Make sure the owner is known before the first command arrives.
 
     Priming py-cord's cache here keeps the owner lookup off the command path,
@@ -60,7 +60,7 @@ async def resolve_owner(bot: Any, settings: Settings) -> None:
     logger.info("owner_resolved source=application owner_id=%s", owner_id)
 
 
-def log_invite_url(bot: Any) -> None:
+def log_invite_url(bot: discord.Bot) -> None:
     """Log the OAuth2 URL that adds this bot to a server."""
     client_id = getattr(getattr(bot, "user", None), "id", None)
     if client_id is None:

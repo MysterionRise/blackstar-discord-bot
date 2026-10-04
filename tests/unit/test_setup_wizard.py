@@ -79,7 +79,7 @@ def test_write_env_is_readable_only_by_its_owner(tmp_path):
     """The file holds a bot token, so other local accounts must not read it."""
     target = tmp_path / ".env"
 
-    write_env(target, "DISCORD_TOKEN=\"secret\"\n")
+    write_env(target, 'DISCORD_TOKEN="secret"\n')
 
     assert target.read_text(encoding="utf-8") == 'DISCORD_TOKEN="secret"\n'
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
@@ -114,7 +114,7 @@ def test_main_records_explicit_ids_and_a_picked_device(wizard, tmp_path):
 def test_main_leaves_an_existing_env_alone_when_declined(wizard, tmp_path):
     """Declining the overwrite must not touch the file or its backup."""
     env = tmp_path / ".env"
-    env.write_text("DISCORD_TOKEN=\"original\"\n", encoding="utf-8")
+    env.write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
     wizard(["n"])
 
     setup_wizard.main()
@@ -126,7 +126,7 @@ def test_main_leaves_an_existing_env_alone_when_declined(wizard, tmp_path):
 def test_main_backs_up_the_previous_env_before_replacing_it(wizard, tmp_path):
     wizard(["y", "", "", ""])
 
-    (tmp_path / ".env").write_text("DISCORD_TOKEN=\"original\"\n", encoding="utf-8")
+    (tmp_path / ".env").write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
     setup_wizard.main()
 
     assert (tmp_path / ".env.bak").read_text(encoding="utf-8") == 'DISCORD_TOKEN="original"\n'
