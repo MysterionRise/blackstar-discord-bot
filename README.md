@@ -27,7 +27,40 @@ On macOS, install the audio dependencies with Homebrew:
 brew install portaudio ffmpeg
 ```
 
+## Run your own instance
+
+Everyone runs their own bot: your own Discord application, your own token, on
+your own machine. That is what keeps the audio private — a bot process can only
+capture the devices on the host it runs on, and only its owner can start a
+stream. Your amp is never reachable from someone else's instance, whatever
+servers you share.
+
+```bash
+git clone https://github.com/MysterionRise/blackstar-discord-bot
+cd blackstar-discord-bot
+python3.12 -m venv venv && source venv/bin/activate
+pip install -e .
+
+blackstar-bot-setup      # asks for your token and picks the audio device
+blackstar-bot-sd         # start the bot
+```
+
+The wizard prints how to create the application. Two settings there matter:
+
+- **Reset Token** on the Bot tab gives you the token the wizard asks for.
+- **Public Bot**, on the same tab, should be turned **off** so nobody but you
+  can add your bot to a server.
+
+On startup the bot logs an `invite_url=` line. Open it to add the bot to a
+server — repeat for each server you want it in — then join a voice channel and
+run `/stream`. You need "Manage Server" on any server you add it to.
+
+Other members of those servers will see the commands but cannot use them: every
+command is refused for anyone who is not the owner of that instance.
+
 ## Setup
+
+For development, or to configure without the wizard:
 
 ```bash
 # Clone and create virtual environment
@@ -44,13 +77,12 @@ pre-commit install --hook-type commit-msg
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your DISCORD_TOKEN, OWNER_ID, and GUILD_ID.
+# Edit .env and add your DISCORD_TOKEN. OWNER_ID and GUILD_ID are optional.
 # AUDIO_BACKEND defaults to sounddevice; set it to ffmpeg only as a fallback.
 ```
 
-`OWNER_ID` and `GUILD_ID` are required for access control — see
-[Access control](#access-control) below. The bot refuses to start without
-`OWNER_ID`.
+`DISCORD_TOKEN` is the only required setting. `OWNER_ID` and `GUILD_ID` shape
+access control — see [Access control](#access-control) below.
 
 ## Usage
 
@@ -65,6 +97,9 @@ python -m blackstar_bot.bot_sounddevice
 python -m blackstar_bot.bot
 ```
 
+Or, after `pip install -e .`, use the `blackstar-bot-sd`, `blackstar-bot`, and
+`blackstar-bot-setup` commands.
+
 In Discord, use:
 - `/stream` — Join your voice channel and start streaming the configured audio device
 - `/stop` — Stop streaming and disconnect
@@ -77,16 +112,22 @@ In Discord, use:
 Every command exposes local audio hardware, so all commands are restricted to a
 single Discord user.
 
-- `OWNER_ID` (**required**) — your numeric Discord user ID. Every command
-  compares `ctx.author.id` against it and replies with a private refusal to
-  anyone else. IDs are used rather than usernames because usernames can be
-  changed. To find yours: Discord → Settings → Advanced → Developer Mode, then
-  right-click your name → Copy User ID.
-- `GUILD_ID` (recommended) — the numeric ID of your server. Slash commands are
-  then registered only in that guild, so they do not appear anywhere else. Leave
-  it unset only if you accept global registration; the bot logs a warning at
-  startup when it is missing. Guild-scoped commands also register immediately
-  instead of taking up to an hour to propagate.
+- `OWNER_ID` (optional) — your numeric Discord user ID. Left unset, the bot
+  authorizes the owner of its own Discord application, which is whoever created
+  the token: you. Set it explicitly to pin authorization to one account, which
+  is worth doing if the application is owned by a Discord **team**, because
+  every team member counts as an owner otherwise. The bot warns at startup when
+  it finds a team. To find your ID: Discord → Settings → Advanced → Developer
+  Mode, then right-click your name → Copy User ID.
+- `GUILD_ID` (optional) — the numeric ID of a single server. Slash commands are
+  then registered only there, and they register immediately instead of taking
+  up to an hour to propagate. Leave it unset to use the bot in every server you
+  add it to, which is the normal setup when the bot is yours alone.
+
+Either way the check compares numeric user IDs, never usernames, because
+usernames can be changed. An owner check that cannot be completed — say Discord
+is unreachable during the application lookup — refuses the command rather than
+allowing it.
 
 `/stream` deliberately takes no arguments. The device and backend come from
 `AUDIO_DEVICE` and `AUDIO_BACKEND`, so no Discord user — not even the owner —
@@ -143,6 +184,25 @@ backups). Set `LOG_FILE=` to an empty value to log to stderr only. A configured
 path that cannot be opened stops startup rather than silently dropping the audit
 trail.
 
+## Docker (Linux hosts only, experimental)
+
+Docker Desktop on macOS and Windows runs containers in a Linux VM that cannot
+reach host USB audio, so the amp is invisible from inside a container there. On
+a Mac, install natively as above. On a Linux host, ALSA can be passed through:
+
+```bash
+blackstar-bot-setup        # or write .env by hand
+docker compose up --build  # logs go to stderr: docker compose logs -f
+```
+
+`docker-compose.yml` passes `/dev/snd` into the container and joins the `audio`
+group. If the amp is not detected, compare the host's audio GID
+(`getent group audio`) with the container's and set `group_add` to that number.
+
+This path is not verified against real amp hardware — the image builds and the
+audio stack loads, but capture itself has only been exercised natively on
+macOS.
+
 ## Development
 
 ```bash
@@ -170,6 +230,8 @@ src/blackstar_bot/
   device_finder.py     # Audio device discovery
   logging_setup.py     # stderr + rotating file logging
   config.py            # Pydantic-based settings from .env
+  startup.py           # Owner resolution + invite link logging
+  setup_wizard.py      # Interactive .env setup (blackstar-bot-setup)
 tests/
   unit/                # Unit tests (mocked hardware)
   integration/         # Integration tests (mocked Discord client)

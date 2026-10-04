@@ -50,11 +50,10 @@ def test_settings_custom_values(monkeypatch):
     assert settings.volume == 0.8
 
 
-def test_settings_requires_owner_id(monkeypatch):
-    """The bot must fail closed rather than start with no owner configured."""
+def test_settings_owner_id_is_optional(monkeypatch):
+    """Unset means "authorize the Discord application's owner", not "anyone"."""
     monkeypatch.setenv("DISCORD_TOKEN", "my-token")
-    with pytest.raises(ValidationError):
-        Settings()
+    assert Settings().owner_id is None
 
 
 def test_settings_rejects_non_positive_owner_id(monkeypatch):

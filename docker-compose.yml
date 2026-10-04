@@ -1,0 +1,16 @@
+# Linux hosts only — see the Docker section in README.md.
+services:
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      # Containers log to stderr; read it with `docker compose logs -f`.
+      LOG_FILE: ""
+    devices:
+      - "/dev/snd:/dev/snd"
+    # The host's audio group GID may differ from the image's: add it by name
+    # here, and if the amp stays invisible use the numeric GID that
+    # `getent group audio` reports on the host.
+    group_add:
+      - audio
+    restart: unless-stopped

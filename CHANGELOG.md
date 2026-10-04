@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Optional `GUILD_ID` scoping so slash commands register in one server only
 - Persistent audit log: refusals record the rejected user ID, written to stderr
   and a rotating file at `LOG_FILE` (default `blackstar-bot.log`)
+- Self-hosting: anyone can run their own instance against their own amp. The
+  bot authorizes the owner of its own Discord application when `OWNER_ID` is
+  unset, logs an `invite_url=` line for adding itself to servers, and warns
+  when a team-owned application widens that to every team member
+- `blackstar-bot-setup`, an interactive wizard that creates `.env` — hidden
+  token entry, audio device picked from the detected inputs, and file
+  permissions set to `0600`
+- Experimental Dockerfile and Compose file for Linux hosts, passing `/dev/snd`
+  into an unprivileged container. Docker Desktop on macOS cannot reach host USB
+  audio, so Mac users should install natively
 
 ### Security
 
@@ -49,7 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Command replies that expose local hardware or exception text are now
   ephemeral; only the stream start/stop notices remain visible to the channel
-- **Breaking:** `OWNER_ID` is now required; the bot fails to start without it
+- `OWNER_ID` is optional again: unset, it resolves to the owner of the bot's
+  own Discord application rather than allowing everyone. `DISCORD_TOKEN` is now
+  the only required setting
+- A missing `GUILD_ID` is logged as information rather than a warning, since
+  global registration is the normal setup for a self-hosted instance
 - **Breaking:** `/stream` no longer accepts `device_name` or `backend`
   arguments — the input device and backend come from configuration only, so no
   Discord user can redirect the stream to another local input

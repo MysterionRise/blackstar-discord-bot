@@ -1,0 +1,24 @@
+# Credentials must never reach the image.
+.env
+.env.*
+!.env.example
+
+.git
+.github
+.idea
+.claude
+.codex
+
+venv
+.venv
+tests
+scripts
+
+*.log
+.coverage
+coverage.xml
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
