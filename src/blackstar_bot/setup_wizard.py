@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import getpass
 import os
-import shutil
 from pathlib import Path
 
 from blackstar_bot.audio_source import SAMPLE_RATE
@@ -76,10 +75,11 @@ def parse_optional_id(raw: str) -> int | None:
 def write_env(path: Path, content: str) -> None:
     """Write *content* to *path*, readable only by the current user."""
     fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, ENV_FILE_MODE)
+    # A pre-existing file keeps its old mode through O_CREAT, so tighten it
+    # before the token is written rather than after.
+    os.chmod(path, ENV_FILE_MODE)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(content)
-    # A pre-existing file keeps its old mode through O_CREAT, so set it too.
-    os.chmod(path, ENV_FILE_MODE)
 
 
 def _say(message: str) -> None:
@@ -126,11 +126,8 @@ def _ask_device() -> str:
     for position, device in enumerate(devices, start=1):
         _say(f"  {position}. {device.name} ({device.default_samplerate:g} Hz)")
 
-    default = _default_device_query(devices)
     while True:
-        raw = _ask(f"\nPick a number, or type a name to match [{default}]: ").strip()
-        if not raw:
-            return default
+        raw = _ask(f"\nPick a number, or type a name to match [{DEFAULT_DEVICE_QUERY}]: ").strip()
         if raw.isdigit():
             chosen = int(raw)
             if not 1 <= chosen <= len(devices):
@@ -139,15 +136,17 @@ def _ask_device() -> str:
             device = devices[chosen - 1]
             _warn_on_sample_rate(device)
             return device.name
-        return raw
+        query = raw or DEFAULT_DEVICE_QUERY
+        matched = _match_device(devices, query)
+        if matched is not None:
+            _warn_on_sample_rate(matched)
+        return query
 
 
-def _default_device_query(devices: list[AudioDevice]) -> str:
-    for device in devices:
-        if DEFAULT_DEVICE_QUERY.lower() in device.name.lower():
-            _warn_on_sample_rate(device)
-            return DEFAULT_DEVICE_QUERY
-    return DEFAULT_DEVICE_QUERY
+def _match_device(devices: list[AudioDevice], query: str) -> AudioDevice | None:
+    """Return the device the bot will pick for *query*, as ``find_device_by_name`` does."""
+    needle = query.lower()
+    return next((device for device in devices if needle in device.name.lower()), None)
 
 
 def _warn_on_sample_rate(device: AudioDevice) -> None:
@@ -180,7 +179,8 @@ def main() -> None:
     device_query = _ask_device()
 
     if ENV_PATH.exists():
-        shutil.copy2(ENV_PATH, BACKUP_PATH)
+        # The old file holds a token too: the backup gets the same 0600 mode.
+        write_env(BACKUP_PATH, ENV_PATH.read_text(encoding="utf-8"))
         _say(f"\nBacked up your previous config to {BACKUP_PATH}.")
 
     write_env(

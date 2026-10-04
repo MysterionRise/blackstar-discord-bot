@@ -27,7 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   when a team-owned application widens that to every team member
 - `blackstar-bot-setup`, an interactive wizard that creates `.env` — hidden
   token entry, audio device picked from the detected inputs, and file
-  permissions set to `0600`
+  permissions set to `0600` before the token is written. A replaced `.env` is
+  kept as `.env.bak`, also `0600`, and `.gitignore` now covers every `.env.*`
+  file except `.env.example`
 - Experimental Dockerfile and Compose file for Linux hosts, passing `/dev/snd`
   into an unprivileged container. Docker Desktop on macOS cannot reach host USB
   audio, so Mac users should install natively

@@ -152,3 +152,55 @@ def test_write_env_tightens_permissions_on_an_existing_file(tmp_path):
 
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert target.read_text(encoding="utf-8") == "new\n"
+
+
+def test_main_backup_is_readable_only_by_its_owner(wizard, tmp_path):
+    """The replaced .env holds a token too, whatever mode it had before."""
+    env = tmp_path / ".env"
+    env.write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
+    env.chmod(0o644)
+    wizard(["y", "", "", ""])
+
+    setup_wizard.main()
+
+    assert stat.S_IMODE((tmp_path / ".env.bak").stat().st_mode) == 0o600
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+
+
+def test_write_env_tightens_permissions_before_writing(tmp_path, monkeypatch):
+    """The token must never sit in a file other accounts can read."""
+    target = tmp_path / ".env"
+    target.write_text("old", encoding="utf-8")
+    target.chmod(0o644)
+    modes_at_write = []
+    real_fdopen = setup_wizard.os.fdopen
+
+    def _recording_fdopen(fd, *args, **kwargs):
+        modes_at_write.append(stat.S_IMODE(target.stat().st_mode))
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(setup_wizard.os, "fdopen", _recording_fdopen)
+
+    write_env(target, 'DISCORD_TOKEN="secret"\n')
+
+    assert modes_at_write == [0o600]
+
+
+def test_main_warns_about_sample_rate_for_a_typed_device_name(wizard, monkeypatch):
+    """Typing a name must not skip the check that picking by number gets."""
+    said = []
+    monkeypatch.setattr(setup_wizard, "_say", said.append)
+    monkeypatch.setattr(
+        setup_wizard,
+        "list_input_devices",
+        lambda: [
+            AudioDevice(
+                index=3, name="USB Audio CODEC", max_input_channels=2, default_samplerate=44100.0
+            )
+        ],
+    )
+    wizard(["", "", "usb audio"])
+
+    setup_wizard.main()
+
+    assert any("44100 Hz" in message for message in said)

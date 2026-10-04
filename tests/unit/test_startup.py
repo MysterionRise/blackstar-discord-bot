@@ -125,3 +125,16 @@ async def test_announce_startup_reports_owner_and_invite(caplog):
     messages = [record.getMessage() for record in caplog.records]
     assert any("owner_resolved" in message for message in messages)
     assert any("invite_url=" in message for message in messages)
+
+
+@pytest.mark.asyncio
+async def test_announce_startup_runs_once_across_reconnects(caplog):
+    """on_ready fires again after every gateway reconnect."""
+    bot = _bot(app=_app(owner_id=OWNER_ID))
+
+    await announce_startup(bot, _settings())
+    with caplog.at_level(logging.INFO, logger="blackstar_bot.startup"):
+        await announce_startup(bot, _settings())
+
+    bot.application_info.assert_awaited_once()
+    assert not caplog.records

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import weakref
 from typing import TYPE_CHECKING
 
 import discord
@@ -16,9 +17,15 @@ logger = logging.getLogger(__name__)
 INVITE_PERMISSIONS = discord.Permissions(connect=True, speak=True)
 INVITE_SCOPES = ("bot", "applications.commands")
 
+# on_ready fires again after every gateway reconnect; announce once per bot.
+_announced: weakref.WeakSet[discord.Bot] = weakref.WeakSet()
+
 
 async def announce_startup(bot: discord.Bot, settings: Settings) -> None:
     """Log who may control this instance, and the link that invites it."""
+    if bot in _announced:
+        return
+    _announced.add(bot)
     await resolve_owner(bot, settings)
     log_invite_url(bot)
 
