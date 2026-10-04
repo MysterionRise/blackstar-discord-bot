@@ -37,7 +37,9 @@ def reset_runtime_state():
 
     bot_module._volume_override = None
     bot_module._settings = _mock_settings()
-    yield
+    # Never reinitialize real PortAudio from the test suite.
+    with patch.object(bot_module, "refresh_devices"):
+        yield
     bot_module._volume_override = None
     bot_module._settings = None
 
@@ -319,6 +321,22 @@ async def test_status_command_reports_active_sounddevice_source():
 
 
 @pytest.mark.asyncio
+async def test_status_command_reports_a_lost_device():
+    """A muted stream must look different from a quiet amp."""
+    source = BlackstarAudioSource(_fake_device())
+    source._state = "reacquiring"
+    vc = AsyncMock()
+    vc.source = source
+    ctx = _make_ctx(in_voice=True, voice_client=vc)
+
+    await status(ctx)
+
+    args = ctx.respond.await_args[0][0]
+    assert "lost" in args.lower()
+    assert "re-acquiring" in args.lower()
+
+
+@pytest.mark.asyncio
 async def test_volume_command_rejects_out_of_range_value():
     """The /volume command should validate user input."""
     ctx = _make_ctx(in_voice=True)
@@ -436,14 +454,51 @@ def test_playback_failure_notice_omits_exception_detail():
 
     with (
         patch.object(bot_module, "_send_channel_message", _fake_send),
-        patch.object(bot_module, "bot") as fake_bot,
+        patch.object(bot_module, "_schedule_on_loop", lambda coro: coro.close()),
     ):
-        fake_bot.loop.create_task = lambda coro: coro.close()
         bot_module._after_playback(_make_ctx(), None, RuntimeError("/Users/someone/secret path"))
 
     assert captured, "expected a channel notice"
     assert "secret path" not in captured[0]
     assert "see the bot log" in captured[0]
+
+
+def test_schedule_on_loop_discards_coroutine_without_a_loop():
+    """No running loop must not leave a coroutine dangling."""
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    async def _noop():
+        return None
+
+    coro = _noop()
+    with patch.object(bot_module, "bot") as fake_bot:
+        fake_bot.loop = None
+        bot_module._schedule_on_loop(coro)
+
+    with pytest.raises(RuntimeError, match="cannot reuse"):
+        coro.send(None)
+
+
+@pytest.mark.asyncio
+async def test_device_unavailable_stops_streaming_without_naming_the_device():
+    """The public notice must not name local hardware."""
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    source = BlackstarAudioSource(_fake_device())
+    voice_client = AsyncMock()
+    voice_client.source = source
+    voice_client.is_playing = MagicMock(return_value=True)
+    voice_client.stop = MagicMock()
+    ctx = _make_ctx(voice_client=voice_client)
+
+    await bot_module._handle_device_unavailable(ctx, voice_client)
+
+    voice_client.stop.assert_called_once()
+    voice_client.disconnect.assert_awaited_once()
+    assert source.state == "stopped"
+    notice = ctx.channel.send.await_args.args[0]
+    assert "Blackstar" not in notice
+    assert "ID:Core" not in notice
 
 
 @pytest.mark.parametrize("command", [stream, stop])
