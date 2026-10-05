@@ -10,8 +10,11 @@ import pytest
 from blackstar_bot import audio_source
 from blackstar_bot.audio_source import (
     BYTES_PER_FRAME,
+    MAX_BUFFER_FRAMES,
+    OVERRUN_LOG_INTERVAL_SECONDS,
     SILENCE,
     STARVATION_SECONDS,
+    TARGET_BUFFER_FRAMES,
     BlackstarAudioSource,
     DeviceIdentityError,
 )
@@ -165,9 +168,8 @@ def test_read_skips_scaling_at_unity_volume(device_48k):
 def test_audio_callback_logs_on_overrun(device_48k, caplog):
     """_audio_callback should log a WARNING when the buffer is full."""
     source = BlackstarAudioSource(device_48k)
-    # Fill the buffer to capacity (maxsize=50)
     frame = b"\x00" * BYTES_PER_FRAME
-    for _ in range(50):
+    for _ in range(MAX_BUFFER_FRAMES):
         source._buffer.put_nowait(frame)
     assert source._buffer.full()
 
@@ -177,6 +179,80 @@ def test_audio_callback_logs_on_overrun(device_48k, caplog):
         source._audio_callback(indata, 960, None, None)
 
     assert any("overrun" in record.message for record in caplog.records)
+
+
+def _marker_frame(value):
+    return bytes([value]) * BYTES_PER_FRAME
+
+
+def _callback_with(source, value):
+    """Feed one 20 ms block whose every byte is *value* through the callback."""
+    indata = np.frombuffer(_marker_frame(value), dtype=np.int16).reshape(960, 2)
+    source._audio_callback(indata, 960, None, None)
+
+
+def test_overrun_trims_to_target_keeping_newest_frames(device_48k):
+    """An overrun drops the oldest audio, not the newest, down to the target depth."""
+    source = BlackstarAudioSource(device_48k)
+    for value in range(1, MAX_BUFFER_FRAMES + 1):
+        source._buffer.put_nowait(_marker_frame(value))
+
+    _callback_with(source, 99)
+
+    assert source._buffer.qsize() == TARGET_BUFFER_FRAMES
+    remaining = [source._buffer.get_nowait() for _ in range(TARGET_BUFFER_FRAMES)]
+    newest_kept = range(MAX_BUFFER_FRAMES - TARGET_BUFFER_FRAMES + 2, MAX_BUFFER_FRAMES + 1)
+    assert remaining == [_marker_frame(v) for v in newest_kept] + [_marker_frame(99)]
+
+
+def test_latency_stays_bounded_without_reads(device_48k):
+    """A capture clock running ahead of playback can never queue more than the ceiling."""
+    source = BlackstarAudioSource(device_48k)
+
+    for _ in range(200):
+        _callback_with(source, 7)
+
+    assert source._buffer.qsize() <= MAX_BUFFER_FRAMES
+
+
+def test_overrun_logging_is_rate_limited(device_48k, caplog, monkeypatch):
+    """Overruns on the real-time thread log once per interval, not once per frame."""
+    clock = [1000.0]
+    monkeypatch.setattr(audio_source.time, "monotonic", lambda: clock[0])
+    source = BlackstarAudioSource(device_48k)
+
+    with caplog.at_level(logging.WARNING, logger="blackstar_bot.audio_source"):
+        for _ in range(100):
+            _callback_with(source, 1)
+        first_burst = [r for r in caplog.records if "buffer_overrun" in r.message]
+
+        clock[0] += OVERRUN_LOG_INTERVAL_SECONDS
+        # Enough blocks to overflow again from any depth the burst left behind.
+        for _ in range(MAX_BUFFER_FRAMES + 1):
+            _callback_with(source, 1)
+
+    overrun_logs = [r for r in caplog.records if "buffer_overrun" in r.message]
+    assert len(first_burst) == 1
+    assert len(overrun_logs) == 2
+    # The second report covers every frame dropped since the first one.
+    assert "dropped=" in overrun_logs[1].getMessage()
+    assert "dropped=0 " not in overrun_logs[1].getMessage()
+
+
+def test_read_does_not_block_on_empty_buffer(device_48k):
+    """read() must never wait: a blocking get stalls the voice player's 20 ms loop."""
+    source = BlackstarAudioSource(device_48k)
+    source._state = "running"
+
+    real_get = source._buffer.get
+
+    def _non_blocking_only(block=True, timeout=None):
+        assert not block, "read() must not use a blocking get"
+        return real_get(block, timeout)
+
+    source._buffer.get = _non_blocking_only
+
+    assert source.read() == SILENCE
 
 
 def test_volume_rejects_negative(device_48k):
