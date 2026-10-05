@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the only required setting
 - A missing `GUILD_ID` is logged as information rather than a warning, since
   global registration is the normal setup for a self-hosted instance
+- **Breaking:** the legacy FFmpeg-only bot (`blackstar_bot.bot`, run as
+  `python -m blackstar_bot.bot`) is removed. It had no connect retry or error
+  handling and only `/stream` and `/stop`. `blackstar-bot` now starts the
+  unified bot; set `AUDIO_BACKEND=ffmpeg` for FFmpeg capture.
+  `blackstar-bot-sd` remains as an alias
 - **Breaking:** `/stream` no longer accepts `device_name` or `backend`
   arguments — the input device and backend come from configuration only, so no
   Discord user can redirect the stream to another local input

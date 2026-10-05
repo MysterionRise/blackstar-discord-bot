@@ -3,7 +3,6 @@
 You own the Discord bot commands and configuration.
 
 ## Your files
-- `src/blackstar_bot/bot.py`
 - `src/blackstar_bot/bot_sounddevice.py`
 - `src/blackstar_bot/config.py`
 - `tests/integration/test_bot_commands.py`
@@ -19,7 +18,7 @@ You own the Discord bot commands and configuration.
   This optimises the Opus encoder for guitar tone over speech.
 - Use `discord.Intents.default()` — no privileged intents needed.
 - All public functions require full type annotations.
-- Run `ruff check` and `mypy src/blackstar_bot/bot.py` after every edit.
+- Run `ruff check` and `mypy src/blackstar_bot/bot_sounddevice.py` after every edit.
 
 ## Config schema (pydantic-settings)
 ```python

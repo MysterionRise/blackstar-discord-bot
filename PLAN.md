@@ -6,12 +6,13 @@
 ## Architecture
 
 The bot captures audio from a Blackstar USB amplifier and streams it into a
-Discord voice channel. Two approaches are supported:
+Discord voice channel. One bot (`bot_sounddevice.py`) supports two capture
+backends, chosen with `AUDIO_BACKEND`:
 
-- **Approach A** (`bot_sounddevice.py`): Uses `sounddevice` (PortAudio) to
-  capture PCM audio directly, wrapped in a custom `discord.AudioSource`.
-- **Approach B** (`bot.py`): Uses FFmpeg to read from the ALSA/Core Audio
-  device and pipes PCM to Discord via `FFmpegPCMAudio`.
+- **sounddevice** (default): uses PortAudio to capture PCM audio directly,
+  wrapped in a custom `discord.AudioSource`.
+- **ffmpeg** (fallback): FFmpeg reads the ALSA/Core Audio/DirectShow device and
+  pipes PCM to Discord via `FFmpegPCMAudio`.
 
 ## Audio Pipeline
 
@@ -43,7 +44,7 @@ Key constraints:
 | Agent | Owns |
 |---|---|
 | `audio_agent` | `audio_source.py`, `device_finder.py` |
-| `bot_agent` | `bot.py`, `bot_sounddevice.py`, `config.py` |
+| `bot_agent` | `bot_sounddevice.py`, `config.py` |
 | `infra_agent` | `pyproject.toml`, CI, scripts |
 | `qa_agent` | `tests/**`, coverage |
 

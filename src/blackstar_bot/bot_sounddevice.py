@@ -1,4 +1,4 @@
-"""Alternative Discord bot — Approach A (sounddevice-based audio streaming)."""
+"""Discord bot that streams the amp, captured via sounddevice (default) or FFmpeg."""
 
 from __future__ import annotations
 

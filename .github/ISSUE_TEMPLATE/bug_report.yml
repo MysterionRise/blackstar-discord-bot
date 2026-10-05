@@ -32,18 +32,18 @@ body:
       label: Steps to reproduce
       placeholder: |
         1. Connect amp via USB
-        2. Run `python bot.py`
-        3. Send `!stream` in Discord
+        2. Run `blackstar-bot`
+        3. Run `/stream` in Discord
         4. ...
     validations:
       required: true
   - type: dropdown
-    id: audio_approach
+    id: audio_backend
     attributes:
-      label: Which audio approach?
+      label: Which audio backend (AUDIO_BACKEND)?
       options:
-        - Approach B (FFmpeg — bot.py)
-        - Approach A (sounddevice — bot_sounddevice.py)
+        - sounddevice (default)
+        - ffmpeg
         - Both
     validations:
       required: true
