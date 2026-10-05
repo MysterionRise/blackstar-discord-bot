@@ -11,32 +11,80 @@ OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
 
 
-def _ctx(author_id):
+def _ctx(author_id, *, app_owner=False):
     ctx = AsyncMock()
     ctx.author = MagicMock()
     ctx.author.id = author_id
     ctx.command = MagicMock()
     ctx.command.name = "stream"
+    # py-cord answers the application-owner question on the bot.
+    ctx.bot = MagicMock()
+    ctx.bot.is_owner = AsyncMock(return_value=app_owner)
     return ctx
 
 
-def test_is_owner_accepts_matching_id():
-    assert is_owner(_ctx(OWNER_ID), OWNER_ID) is True
+@pytest.mark.asyncio
+async def test_is_owner_accepts_matching_id():
+    assert await is_owner(_ctx(OWNER_ID), OWNER_ID) is True
 
 
-def test_is_owner_rejects_other_user():
-    assert is_owner(_ctx(OWNER_ID + 1), OWNER_ID) is False
+@pytest.mark.asyncio
+async def test_is_owner_rejects_other_user():
+    assert await is_owner(_ctx(OWNER_ID + 1), OWNER_ID) is False
 
 
-def test_is_owner_rejects_missing_author():
+@pytest.mark.asyncio
+async def test_is_owner_rejects_missing_author():
     ctx = AsyncMock()
     ctx.author = None
-    assert is_owner(ctx, OWNER_ID) is False
+    assert await is_owner(ctx, OWNER_ID) is False
 
 
-def test_is_owner_rejects_non_integer_id():
+@pytest.mark.asyncio
+async def test_is_owner_rejects_non_integer_id():
     """A mock/string id must never satisfy the check."""
-    assert is_owner(_ctx(str(OWNER_ID)), OWNER_ID) is False
+    assert await is_owner(_ctx(str(OWNER_ID)), OWNER_ID) is False
+
+
+@pytest.mark.asyncio
+async def test_configured_owner_id_skips_the_application_lookup():
+    """An explicit OWNER_ID is authoritative and costs no HTTP call."""
+    ctx = _ctx(OWNER_ID, app_owner=True)
+    assert await is_owner(ctx, OWNER_ID) is True
+    ctx.bot.is_owner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_application_owner_is_authorized_without_owner_id():
+    """With OWNER_ID unset, the owner of the bot's own application may act."""
+    ctx = _ctx(OWNER_ID, app_owner=True)
+    assert await is_owner(ctx, None) is True
+    ctx.bot.is_owner.assert_awaited_once_with(ctx.author)
+
+
+@pytest.mark.asyncio
+async def test_non_application_owner_is_refused_without_owner_id():
+    assert await is_owner(_ctx(INTRUDER_ID, app_owner=False), None) is False
+
+
+@pytest.mark.asyncio
+async def test_failed_owner_lookup_refuses_and_logs(caplog):
+    """An unanswerable owner check must deny, never allow."""
+    ctx = _ctx(OWNER_ID)
+    ctx.bot.is_owner = AsyncMock(side_effect=RuntimeError("Discord is down"))
+
+    with caplog.at_level(logging.WARNING, logger="blackstar_bot.authz"):
+        allowed = await is_owner(ctx, None)
+
+    assert allowed is False
+    assert any("owner_lookup_failed" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_missing_bot_on_context_refuses():
+    ctx = _ctx(OWNER_ID)
+    ctx.bot = None
+    assert await is_owner(ctx, None) is False
 
 
 @pytest.mark.asyncio

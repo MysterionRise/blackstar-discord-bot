@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     """Bot configuration sourced from environment variables."""
 
     discord_token: str
-    owner_id: int = Field(gt=0)
+    # Optional: left unset, the bot authorizes the owner of its own Discord
+    # application, which is who created the token in the first place.
+    owner_id: int | None = Field(default=None, gt=0)
     guild_id: int | None = Field(default=None, gt=0)
     audio_device: str = "Blackstar"
     audio_backend: AudioBackend = "sounddevice"

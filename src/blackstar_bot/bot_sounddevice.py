@@ -21,6 +21,7 @@ from blackstar_bot.device_finder import (
     refresh_devices,
 )
 from blackstar_bot.logging_setup import configure_logging
+from blackstar_bot.startup import announce_startup
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -330,6 +331,7 @@ bot: Any = discord.Bot(intents=discord.Intents.default())
 async def on_ready() -> None:
     """Log when the bot is connected and ready."""
     logger.info("Logged in as %s (id=%s)", bot.user, bot.user.id if bot.user else "?")
+    await announce_startup(bot, _get_settings())
 
 
 @bot.slash_command(
@@ -490,9 +492,9 @@ def main() -> None:
     settings = _get_settings()
     configure_logging(settings)
     if settings.guild_id is None:
-        logger.warning(
-            "guild_scope_missing: commands are registered globally; "
-            "set GUILD_ID to register them in a single server only"
+        logger.info(
+            "guild_scope_global: commands are available in every server this bot "
+            "joins; set GUILD_ID to register them in a single server only"
         )
     elif GUILD_IDS is None:
         logger.warning(

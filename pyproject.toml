@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 blackstar-bot = "blackstar_bot.bot:main"
 blackstar-bot-sd = "blackstar_bot.bot_sounddevice:main"
+blackstar-bot-setup = "blackstar_bot.setup_wizard:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/blackstar_bot"]
