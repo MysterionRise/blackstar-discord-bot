@@ -156,9 +156,7 @@ async def test_bot_disconnected_externally_releases_the_capture_device():
     bot_module._register_stream(_ctx(), voice_client)
     bot_member = _member(BOT_ID, is_bot=True)
 
-    await on_voice_state_update(
-        bot_member, _voice_state(voice_client.channel), _voice_state(None)
-    )
+    await on_voice_state_update(bot_member, _voice_state(voice_client.channel), _voice_state(None))
 
     voice_client.source.cleanup.assert_called_once()
     voice_client.disconnect.assert_not_awaited()
