@@ -14,7 +14,7 @@ OWNER_ID = 424242424242424242
 def isolate_env(monkeypatch, tmp_path):
     """Keep a developer's real .env out of these tests."""
     monkeypatch.chdir(tmp_path)
-    for key in ("DISCORD_TOKEN", "OWNER_ID", "GUILD_ID", "AUDIO_DEVICE", "LOG_FILE"):
+    for key in ("DISCORD_TOKEN", "OWNER_ID", "GUILD_ID", "AUDIO_DEVICE", "LOG_FILE", "LOG_LEVEL"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -30,6 +30,7 @@ def test_settings_defaults(monkeypatch):
     assert settings.audio_backend == "sounddevice"
     assert settings.debug_config is False
     assert settings.log_file == Path("blackstar-bot.log")
+    assert settings.log_level == "INFO"
     assert settings.volume == 1.0
 
 
@@ -78,3 +79,19 @@ def test_settings_custom_log_file(monkeypatch):
     monkeypatch.setenv("OWNER_ID", str(OWNER_ID))
     monkeypatch.setenv("LOG_FILE", "/tmp/blackstar.log")
     assert Settings().log_file == Path("/tmp/blackstar.log")
+
+
+@pytest.mark.parametrize("raw", ["debug", " Debug ", "DEBUG"])
+def test_log_level_is_case_insensitive(monkeypatch, raw):
+    monkeypatch.setenv("DISCORD_TOKEN", "test-token")
+    monkeypatch.setenv("LOG_LEVEL", raw)
+
+    assert Settings().log_level == "DEBUG"
+
+
+def test_log_level_rejects_unknown_levels(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "test-token")
+    monkeypatch.setenv("LOG_LEVEL", "verbose")
+
+    with pytest.raises(ValidationError):
+        Settings()

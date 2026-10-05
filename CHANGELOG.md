@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   still connecting. `/stop`, `/status` and `/volume` act on the active stream
   from any server the bot is in
 
+- `LOG_LEVEL` setting (`DEBUG`, `INFO`, `WARNING` or `ERROR`; default `INFO`,
+  case-insensitive) controls log verbosity
+
 ### Security
 
 - **Capture no longer falls through to another input device.** When the amp was
@@ -56,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Structured log fields are no longer dropped. Context passed to the logger
+  (device, backend, volume, channel, attempt number and so on) was missing from
+  every log line because the format had no place for it, so `DEBUG_CONFIG=true`
+  printed `stream_config` with no values. Fields now follow the message as
+  `key=value`, on stderr and in `LOG_FILE`
 - Blocking PortAudio work no longer runs on the bot's event loop. Device
   re-enumeration, lookup and stream start in `/stream`, the device list in
   `/devices`, and capture teardown (which can wait seconds for the watchdog)

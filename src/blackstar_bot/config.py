@@ -9,6 +9,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AudioBackend = Literal["sounddevice", "ffmpeg"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 class Settings(BaseSettings):
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
     audio_backend: AudioBackend = "sounddevice"
     debug_config: bool = False
     log_file: Path | None = Path("blackstar-bot.log")
+    log_level: LogLevel = "INFO"
     volume: float = Field(default=1.0, ge=0.0, le=5.0)
 
     model_config = SettingsConfigDict(env_file=".env")
@@ -33,4 +35,12 @@ class Settings(BaseSettings):
         """Treat an empty ``LOG_FILE`` as "no file logging" rather than a blank path."""
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalize_log_level(cls: type[Settings], value: object) -> object:
+        """Accept ``LOG_LEVEL=debug`` as well as ``LOG_LEVEL=DEBUG``."""
+        if isinstance(value, str):
+            return value.strip().upper()
         return value
