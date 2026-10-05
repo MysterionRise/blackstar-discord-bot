@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Experimental Dockerfile and Compose file for Linux hosts, passing `/dev/snd`
   into an unprivileged container. Docker Desktop on macOS cannot reach host USB
   audio, so Mac users should install natively
+- Automatic stop: a stream ends 30 seconds after the user who started it leaves
+  the voice channel, or after no human is left in it, with a short public
+  notice. Rejoining within the grace period cancels it. If the bot itself is
+  kicked or disconnected, the capture device is released straight away
 
 ### Security
 

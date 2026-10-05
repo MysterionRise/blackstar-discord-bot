@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 import discord
@@ -33,6 +34,9 @@ _volume_override: float | None = None
 CONNECT_ATTEMPTS = 2
 CONNECT_RETRY_DELAY_SECONDS = 1.0
 MAX_DEVICE_LIST_ITEMS = 10
+# How long a stream may run unattended (owner gone, or nobody listening)
+# before it is stopped. Long enough to survive a quick reconnect.
+AUTO_STOP_GRACE_SECONDS = 30.0
 
 
 class VoiceChannel(Protocol):
@@ -182,10 +186,100 @@ def _schedule_on_loop(coro: Coroutine[Any, Any, None]) -> None:
         logger.warning("loop_schedule_failed", exc_info=True)
 
 
-async def _handle_device_unavailable(
-    ctx: discord.ApplicationContext, voice_client: VoiceClient
-) -> None:
-    """Tear down the stream after the capture device stayed gone."""
+@dataclass
+class _ActiveStream:
+    """A running stream and who it is for, tracked per guild."""
+
+    owner_id: int
+    ctx: discord.ApplicationContext
+    voice_client: VoiceClient
+    auto_stop: asyncio.Task[None] | None = None
+
+
+_active_streams: dict[int, _ActiveStream] = {}
+
+
+def _guild_id_of(voice_client: object, ctx: discord.ApplicationContext) -> int | None:
+    guild_id = getattr(getattr(voice_client, "guild", None), "id", None)
+    if not isinstance(guild_id, int):
+        guild_id = getattr(ctx, "guild_id", None)
+    return guild_id if isinstance(guild_id, int) else None
+
+
+def _register_stream(ctx: discord.ApplicationContext, voice_client: VoiceClient) -> None:
+    """Track a started stream so voice-state changes can stop it."""
+    guild_id = _guild_id_of(voice_client, ctx)
+    owner_id = getattr(getattr(ctx, "author", None), "id", None)
+    if guild_id is None or not isinstance(owner_id, int):
+        return
+    _active_streams[guild_id] = _ActiveStream(owner_id, ctx, voice_client)
+    # The owner may already have left during the voice handshake.
+    _evaluate_listeners(guild_id)
+
+
+def _forget_stream(voice_client: object) -> None:
+    """Stop tracking the stream on *voice_client* and cancel any pending auto-stop."""
+    for guild_id, active in list(_active_streams.items()):
+        if active.voice_client is voice_client:
+            del _active_streams[guild_id]
+            if active.auto_stop is not None:
+                active.auto_stop.cancel()
+
+
+def _unattended_reason(active: _ActiveStream) -> str | None:
+    """Return why nobody should be hearing this stream, or None if someone is."""
+    channel = getattr(active.voice_client, "channel", None)
+    members = getattr(channel, "members", None) or []
+    humans = [member for member in members if not getattr(member, "bot", False)]
+    if not humans:
+        return "channel_empty"
+    if all(getattr(member, "id", None) != active.owner_id for member in humans):
+        return "owner_left"
+    return None
+
+
+def _evaluate_listeners(guild_id: int) -> None:
+    """Start or cancel the auto-stop timer for *guild_id*'s stream."""
+    active = _active_streams.get(guild_id)
+    if active is None:
+        return
+    reason = _unattended_reason(active)
+    if reason is None:
+        if active.auto_stop is not None:
+            active.auto_stop.cancel()
+            active.auto_stop = None
+            logger.info("auto_stop_cancelled guild=%s", guild_id)
+        return
+    if active.auto_stop is None:
+        active.auto_stop = asyncio.create_task(_auto_stop_after_grace(guild_id))
+        logger.info(
+            "auto_stop_scheduled guild=%s reason=%s grace=%gs",
+            guild_id,
+            reason,
+            AUTO_STOP_GRACE_SECONDS,
+        )
+
+
+async def _auto_stop_after_grace(guild_id: int) -> None:
+    """Stop the stream if it is still unattended once the grace period ends."""
+    await asyncio.sleep(AUTO_STOP_GRACE_SECONDS)
+    active = _active_streams.get(guild_id)
+    if active is None:
+        return
+    # This task is finishing; it must not be cancelled by the teardown below.
+    active.auto_stop = None
+    reason = _unattended_reason(active)
+    if reason is None:
+        return
+    await _teardown(active.voice_client)
+    logger.info("stream_stopped reason=auto_stop guild=%s cause=%s", guild_id, reason)
+    # No device name: this notice is public.
+    await _send_channel_message(active.ctx, "Stopped streaming because nobody was listening.")
+
+
+async def _teardown(voice_client: VoiceClient) -> None:
+    """Stop playback, release the capture device and leave the voice channel."""
+    _forget_stream(voice_client)
     source = _active_sounddevice_source(voice_client)
     with contextlib.suppress(Exception):
         if voice_client.is_playing():
@@ -193,6 +287,13 @@ async def _handle_device_unavailable(
     if source is not None:
         source.cleanup()
     await _disconnect_quietly(voice_client)
+
+
+async def _handle_device_unavailable(
+    ctx: discord.ApplicationContext, voice_client: VoiceClient
+) -> None:
+    """Tear down the stream after the capture device stayed gone."""
+    await _teardown(voice_client)
     # Deliberately no device name: this notice is public, and device names are
     # treated as private (that is why /devices replies ephemerally).
     await _send_channel_message(
@@ -262,6 +363,7 @@ async def _start_sounddevice_stream(
         await ctx.respond(f"Could not start streaming from '{device.name}': {exc}", ephemeral=True)
         return
 
+    _register_stream(ctx, voice_client)
     logger.info(
         "sounddevice_stream_started",
         extra={"device": device.name, "channel": getattr(channel, "name", "?"), "volume": volume},
@@ -297,6 +399,7 @@ async def _start_ffmpeg_stream(
         )
         return
 
+    _register_stream(ctx, voice_client)
     logger.info(
         "ffmpeg_stream_started",
         extra={
@@ -332,6 +435,30 @@ async def on_ready() -> None:
     """Log when the bot is connected and ready."""
     logger.info("Logged in as %s (id=%s)", bot.user, bot.user.id if bot.user else "?")
     await announce_startup(bot, _get_settings())
+
+
+@bot.event
+async def on_voice_state_update(
+    member: discord.Member, before: discord.VoiceState, after: discord.VoiceState
+) -> None:
+    """Stop streaming once nobody it is meant for is listening."""
+    guild_id = getattr(getattr(member, "guild", None), "id", None)
+    active = _active_streams.get(guild_id) if isinstance(guild_id, int) else None
+    if active is None or guild_id is None:
+        return
+
+    bot_user_id = getattr(getattr(bot, "user", None), "id", None)
+    if member.id == bot_user_id and after.channel is None:
+        # Kicked, channel deleted, or disconnected elsewhere: the voice client
+        # is already gone, so only the capture side needs releasing.
+        _forget_stream(active.voice_client)
+        source = _active_sounddevice_source(active.voice_client)
+        if source is not None:
+            source.cleanup()
+        logger.info("stream_stopped reason=bot_disconnected guild=%s", guild_id)
+        return
+
+    _evaluate_listeners(guild_id)
 
 
 @bot.slash_command(
@@ -398,13 +525,8 @@ async def stop(ctx: discord.ApplicationContext) -> None:
     if ctx.voice_client is None:
         await ctx.respond("Not currently in a voice channel.", ephemeral=True)
         return
-    vc = ctx.voice_client
-    if vc.is_playing():
-        vc.stop()
-    source = _active_sounddevice_source(vc)
-    if source is not None:
-        source.cleanup()
-    await vc.disconnect()
+    voice_client: Any = ctx.voice_client
+    await _teardown(voice_client)
     logger.info("stream_stopped")
     await ctx.respond("Stopped streaming.")
 
