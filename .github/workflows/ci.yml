@@ -16,12 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/setup-python@v7
         with:
-          args: "check --output-format=github"
-      - uses: astral-sh/ruff-action@v3
+          python-version: "3.12"
+      # Hook versions come from .pre-commit-config.yaml, so CI runs exactly the
+      # ruff a contributor runs locally.
+      - name: Install pre-commit
+        run: pip install pre-commit
+      - uses: actions/cache@v6
         with:
-          args: "format --check"
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Run ruff
+        run: pre-commit run ruff-check --all-files --show-diff-on-failure
+      - name: Check formatting
+        run: pre-commit run ruff-format --all-files --show-diff-on-failure
 
   typecheck:
     name: typecheck (mypy)
@@ -72,11 +81,14 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
-      - name: Install bandit
-        run: pip install "bandit[toml]>=1.7.8"
+      - name: Install pre-commit
+        run: pip install pre-commit
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
       - name: Run bandit
-        run: bandit -c pyproject.toml -r src/
+        run: pre-commit run bandit --all-files
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v3
         env:

@@ -20,7 +20,9 @@ in `scripts/`, including `scripts/list_devices.py` for local audio-device checks
 - `ruff check src/ tests/`: lint Python code.
 - `ruff format --check src/ tests/`: verify formatting.
 - `mypy src/`: run strict type checking.
-- `pre-commit run --all-files`: run the full local quality gate.
+- `pre-commit run --all-files`: run the full local quality gate. Tool versions
+  live in `.pre-commit-config.yaml`, and CI runs the same ruff and bandit hooks,
+  so a clean local run matches CI. Bump hooks with `pre-commit autoupdate`.
 
 ## Coding Style & Naming Conventions
 
