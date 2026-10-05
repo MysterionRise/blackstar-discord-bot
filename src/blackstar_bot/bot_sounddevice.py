@@ -314,7 +314,8 @@ async def _teardown(voice_client: VoiceClient) -> None:
         if voice_client.is_playing():
             voice_client.stop()
     if source is not None:
-        source.cleanup()
+        # Can wait seconds for the capture watchdog to exit; keep the loop free.
+        await asyncio.to_thread(source.cleanup)
     await _disconnect_quietly(voice_client)
 
 
@@ -351,8 +352,9 @@ async def _start_sounddevice_stream(
 ) -> None:
     # PortAudio caches its device list, so an already-unplugged amp can still
     # be listed with an index that now belongs to another input.
-    refresh_devices()
-    device = find_device_by_name(device_name)
+    # Both reinitialize or query PortAudio, which blocks; run them off the loop.
+    await asyncio.to_thread(refresh_devices)
+    device = await asyncio.to_thread(find_device_by_name, device_name)
     if device is None:
         logger.info("audio_device_not_found", extra={"device_query": device_name})
         await ctx.respond(
@@ -373,7 +375,7 @@ async def _start_sounddevice_stream(
             device_query=device_name,
             on_unavailable=lambda: _schedule_on_loop(_handle_device_unavailable(ctx, connected)),
         )
-        source.start()
+        await asyncio.to_thread(source.start)
         voice_client.play(
             source,
             signal_type="music",
@@ -381,7 +383,7 @@ async def _start_sounddevice_stream(
         )
     except Exception as exc:
         if source is not None:
-            source.cleanup()
+            await asyncio.to_thread(source.cleanup)
         if voice_client is not None:
             await _disconnect_quietly(voice_client)
         logger.warning(
@@ -483,7 +485,7 @@ async def on_voice_state_update(
         _forget_stream(active.voice_client)
         source = _active_sounddevice_source(active.voice_client)
         if source is not None:
-            source.cleanup()
+            await asyncio.to_thread(source.cleanup)
         logger.info("stream_stopped reason=bot_disconnected guild=%s", guild_id)
         return
 
@@ -609,7 +611,7 @@ async def devices(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
-    detected_devices = list_input_devices()
+    detected_devices = await asyncio.to_thread(list_input_devices)
     logger.info("audio_devices_listed", extra={"count": len(detected_devices)})
     await ctx.respond(_format_device_list(detected_devices), ephemeral=True)
 

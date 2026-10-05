@@ -67,3 +67,46 @@ def test_refresh_devices_survives_portaudio_error(_mock, caplog):
     with caplog.at_level(logging.WARNING, logger="blackstar_bot.device_finder"):
         refresh_devices()
     assert any("portaudio_refresh_failed" in r.message for r in caplog.records)
+
+
+def test_device_queries_wait_for_a_portaudio_reinitialization():
+    """Querying while another thread reinitializes PortAudio is undefined behaviour."""
+    import threading
+
+    reinit_started = threading.Event()
+    release_reinit = threading.Event()
+    query_done = threading.Event()
+
+    def _slow_terminate():
+        reinit_started.set()
+        assert release_reinit.wait(timeout=5)
+
+    with (
+        patch("blackstar_bot.device_finder.sd._terminate", side_effect=_slow_terminate),
+        patch("blackstar_bot.device_finder.sd._initialize"),
+        patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES),
+    ):
+        refresher = threading.Thread(target=refresh_devices)
+        refresher.start()
+        assert reinit_started.wait(timeout=5)
+
+        querier = threading.Thread(target=lambda: (list_input_devices(), query_done.set()))
+        querier.start()
+
+        # The query must still be blocked behind the in-progress reinit.
+        assert not query_done.wait(timeout=0.2)
+
+        release_reinit.set()
+        refresher.join(timeout=5)
+        querier.join(timeout=5)
+
+    assert query_done.is_set()
+
+
+@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+def test_portaudio_lock_is_reentrant(_mock):
+    """A caller holding the lock (stream open + verify) can still query devices."""
+    from blackstar_bot.device_finder import portaudio_lock
+
+    with portaudio_lock():
+        assert find_device_by_name("blackstar") is not None

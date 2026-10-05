@@ -14,7 +14,12 @@ import discord
 import numpy as np
 import sounddevice as sd
 
-from blackstar_bot.device_finder import find_device_by_name, live_device_name, refresh_devices
+from blackstar_bot.device_finder import (
+    find_device_by_name,
+    live_device_name,
+    portaudio_lock,
+    refresh_devices,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,28 +205,32 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         PortAudio's cached device list can name an amp that is already
         unplugged, and its index may now be a microphone. Verifying the live
         name after opening is what keeps a stale index from being streamed.
-        """
-        stream = sd.RawInputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=SAMPLES_PER_FRAME,
-            device=device.index,
-            callback=self._audio_callback,
-            finished_callback=self._on_stream_finished,
-        )
-        stream.start()
 
-        opened_name = live_device_name(device.index)
-        if opened_name is None or self._device_query.lower() not in opened_name.lower():
-            self._force_close(stream)
-            self._drain_buffer()
-            msg = (
-                f"Capture device at index {device.index} reports as "
-                f"{opened_name!r}, which does not match {self._device_query!r}; "
-                "refusing to stream."
+        Held under the PortAudio lock throughout, so a re-enumeration cannot
+        land between opening the index and checking what it now names.
+        """
+        with portaudio_lock():
+            stream = sd.RawInputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="int16",
+                blocksize=SAMPLES_PER_FRAME,
+                device=device.index,
+                callback=self._audio_callback,
+                finished_callback=self._on_stream_finished,
             )
-            raise DeviceIdentityError(msg)
+            stream.start()
+
+            opened_name = live_device_name(device.index)
+            if opened_name is None or self._device_query.lower() not in opened_name.lower():
+                self._force_close(stream)
+                self._drain_buffer()
+                msg = (
+                    f"Capture device at index {device.index} reports as "
+                    f"{opened_name!r}, which does not match {self._device_query!r}; "
+                    "refusing to stream."
+                )
+                raise DeviceIdentityError(msg)
 
         with self._lock:
             self._stream = stream

@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sounddevice as sd
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 logger = logging.getLogger(__name__)
+
+# PortAudio is not safe to query while another thread reinitializes it, and
+# refresh_devices() does exactly that from the watchdog thread. Every device
+# query, re-enumeration and stream open goes through this lock. Reentrant, so
+# find_device_by_name() -> list_input_devices() and a stream open that verifies
+# the live device name cannot deadlock on themselves.
+_PORTAUDIO_LOCK = threading.RLock()
+
+
+@contextlib.contextmanager
+def portaudio_lock() -> Iterator[None]:
+    """Hold the process-wide PortAudio lock for a multi-step operation."""
+    with _PORTAUDIO_LOCK:
+        yield
 
 
 @dataclass
@@ -25,7 +44,8 @@ def list_input_devices() -> list[AudioDevice]:
     """Return all audio input devices available on the system."""
     devices: list[AudioDevice] = []
     try:
-        device_list: Any = sd.query_devices()
+        with _PORTAUDIO_LOCK:
+            device_list: Any = sd.query_devices()
     except Exception:
         logger.warning("PortAudio error while querying devices", exc_info=True)
         return []
@@ -63,8 +83,9 @@ def refresh_devices() -> None:
     live stream is undefined behaviour.
     """
     try:
-        sd._terminate()
-        sd._initialize()
+        with _PORTAUDIO_LOCK:
+            sd._terminate()
+            sd._initialize()
     except Exception:
         # Non-fatal: callers fall back to the cached list, and the identity
         # check at stream-open time still refuses a mismatched device.
@@ -79,7 +100,8 @@ def live_device_name(index: int) -> str | None:
     hardware rather than whatever now occupies the index.
     """
     try:
-        info: Any = sd.query_devices(index)
+        with _PORTAUDIO_LOCK:
+            info: Any = sd.query_devices(index)
     except Exception:
         logger.warning("portaudio_query_failed index=%s", index, exc_info=True)
         return None
