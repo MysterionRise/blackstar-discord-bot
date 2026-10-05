@@ -3,8 +3,8 @@
 ## Project Structure & Module Organization
 
 This is a Python 3.12 Discord voice bot packaged from `src/blackstar_bot/`.
-Core modules live there: `bot.py` is the FFmpeg-based bot, `bot_sounddevice.py`
-is the sounddevice alternative, `audio_source.py` handles live capture,
+Core modules live there: `bot_sounddevice.py` is the bot, capturing via
+sounddevice or FFmpeg (`AUDIO_BACKEND`), `audio_source.py` handles live capture,
 `device_finder.py` discovers USB audio devices, and `config.py` loads settings.
 Tests are under `tests/`, split into `tests/unit/` for mocked component tests and
 `tests/integration/` for higher-level bot command behavior. Utility scripts live
@@ -13,8 +13,8 @@ in `scripts/`, including `scripts/list_devices.py` for local audio-device checks
 ## Build, Test, and Development Commands
 
 - `pip install -e ".[dev]"`: install the package and development tooling.
-- `python -m blackstar_bot.bot`: run the FFmpeg bot entry point.
-- `python -m blackstar_bot.bot_sounddevice`: run the sounddevice bot entry point.
+- `blackstar-bot` (or `python -m blackstar_bot.bot_sounddevice`): run the bot.
+- `blackstar-bot-setup`: interactively write `.env`.
 - `python scripts/list_devices.py`: list available audio input devices.
 - `pytest`: run the test suite with coverage reporting.
 - `ruff check src/ tests/`: lint Python code.

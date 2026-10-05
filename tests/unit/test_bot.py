@@ -1,16 +1,19 @@
-"""Tests for blackstar_bot.bot helpers."""
+"""Tests for blackstar_bot.bot_sounddevice helpers."""
 
 from unittest.mock import MagicMock, patch
 
 from pydantic import ValidationError
 
-from blackstar_bot.bot import _ffmpeg_input_args
-from blackstar_bot.bot_sounddevice import _format_device_list, _resolve_guild_ids
+from blackstar_bot.bot_sounddevice import (
+    _ffmpeg_input_args,
+    _format_device_list,
+    _resolve_guild_ids,
+)
 from blackstar_bot.device_finder import AudioDevice
 
 
 def test_ffmpeg_input_args_darwin():
-    with patch("blackstar_bot.bot.sys") as mock_sys:
+    with patch("blackstar_bot.bot_sounddevice.sys") as mock_sys:
         mock_sys.platform = "darwin"
         source, opts = _ffmpeg_input_args("MyDevice")
     assert source == ":MyDevice"
@@ -18,7 +21,7 @@ def test_ffmpeg_input_args_darwin():
 
 
 def test_ffmpeg_input_args_linux():
-    with patch("blackstar_bot.bot.sys") as mock_sys:
+    with patch("blackstar_bot.bot_sounddevice.sys") as mock_sys:
         mock_sys.platform = "linux"
         source, opts = _ffmpeg_input_args("MyDevice")
     assert source == "hw:MyDevice"
@@ -26,7 +29,7 @@ def test_ffmpeg_input_args_linux():
 
 
 def test_ffmpeg_input_args_win32():
-    with patch("blackstar_bot.bot.sys") as mock_sys:
+    with patch("blackstar_bot.bot_sounddevice.sys") as mock_sys:
         mock_sys.platform = "win32"
         source, opts = _ffmpeg_input_args("MyDevice")
     assert source == "audio=MyDevice"

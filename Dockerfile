@@ -22,4 +22,4 @@ RUN pip install --no-cache-dir .
 RUN useradd --create-home --groups audio blackstar
 USER blackstar
 
-CMD ["blackstar-bot-sd"]
+CMD ["blackstar-bot"]

@@ -37,7 +37,7 @@ The bot logs its own invite link on startup, so you do not need it yet.
 OUTRO = """
 Done. Next steps:
 
-  1. Start the bot:  blackstar-bot-sd
+  1. Start the bot:  blackstar-bot
   2. Copy the invite_url line it logs and open it to add the bot to a server.
   3. Join a voice channel and run /stream.
 """

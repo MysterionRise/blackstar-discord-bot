@@ -5,7 +5,7 @@ Python bot that streams guitar audio from a Blackstar USB amp into a Discord voi
 ## Features
 
 - Stream live guitar audio from a Blackstar amplifier into Discord voice chat
-- Two audio approaches: FFmpeg-based (`bot.py`) and sounddevice-based (`bot_sounddevice.py`)
+- Two capture backends in one bot: sounddevice (default) and FFmpeg (`AUDIO_BACKEND=ffmpeg`)
 - Automatic USB audio device discovery
 - Configurable backend, device, and volume control
 - Slash commands (`/stream`, `/stop`, `/status`, `/devices`, `/volume`)
@@ -42,7 +42,7 @@ python3.12 -m venv venv && source venv/bin/activate
 pip install -e .
 
 blackstar-bot-setup      # asks for your token and picks the audio device
-blackstar-bot-sd         # start the bot
+blackstar-bot            # start the bot
 ```
 
 The wizard prints how to create the application. Two settings there matter:
@@ -90,15 +90,12 @@ access control — see [Access control](#access-control) below.
 # Check that your Blackstar amp is detected
 python scripts/list_devices.py
 
-# Run the primary bot (sounddevice by default, FFmpeg fallback via AUDIO_BACKEND)
-python -m blackstar_bot.bot_sounddevice
-
-# Legacy FFmpeg-only entry point
-python -m blackstar_bot.bot
+# Run the bot (sounddevice by default, FFmpeg fallback via AUDIO_BACKEND)
+blackstar-bot
 ```
 
-Or, after `pip install -e .`, use the `blackstar-bot-sd`, `blackstar-bot`, and
-`blackstar-bot-setup` commands.
+`blackstar-bot-sd` and `python -m blackstar_bot.bot_sounddevice` start the same
+bot. `blackstar-bot-setup` writes `.env` interactively.
 
 In Discord, use:
 - `/stream` — Join your voice channel and start streaming the configured audio device
@@ -223,8 +220,7 @@ pre-commit run --all-files
 ```
 src/blackstar_bot/
   __init__.py          # Package init
-  bot.py               # Main bot (Approach B — FFmpeg)
-  bot_sounddevice.py   # Alternative bot (Approach A — sounddevice)
+  bot_sounddevice.py   # The bot: slash commands, sounddevice or FFmpeg capture
   audio_source.py      # Custom AudioSource for sounddevice capture
   authz.py             # Owner-only command authorization
   device_finder.py     # Audio device discovery
