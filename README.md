@@ -104,6 +104,10 @@ In Discord, use:
 - `/devices` — List detected audio input devices
 - `/volume` — Show or change the sounddevice playback volume
 
+The bot also stops on its own 30 seconds after you leave its voice channel, or
+after the channel empties, so the amp is never left broadcasting to nobody (or
+to people you left behind). Rejoining within those 30 seconds keeps it running.
+
 ## Access control
 
 Every command exposes local audio hardware, so all commands are restricted to a
