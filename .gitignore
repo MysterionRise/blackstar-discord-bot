@@ -11,10 +11,10 @@ build/
 .venv/
 venv/
 
-# Environment variables
+# Environment variables (and the wizard's .env.bak): these hold the bot token
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Testing / coverage
 coverage.xml
