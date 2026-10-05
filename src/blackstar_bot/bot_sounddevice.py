@@ -7,7 +7,7 @@ import contextlib
 import logging
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import discord
 from pydantic import ValidationError
@@ -197,6 +197,35 @@ class _ActiveStream:
 
 
 _active_streams: dict[int, _ActiveStream] = {}
+# One amp, one stream: set while a /stream is connecting, before the stream is
+# registered, so a second /stream from another server cannot race past the check.
+_stream_starting = False
+
+
+def _current_stream() -> _ActiveStream | None:
+    """Return the instance's single active stream, wherever it is."""
+    return next(iter(_active_streams.values()), None)
+
+
+def _voice_client_for(ctx: discord.ApplicationContext) -> VoiceClient | None:
+    """Return the stream's voice client, from this server or any other.
+
+    Commands are global for a self-hosted instance, so the owner may run
+    /stop or /status from a different server than the one being streamed to.
+    """
+    if ctx.voice_client is not None:
+        # py-cord's VoiceClient satisfies the local protocol at runtime; its
+        # overloaded play() signature is what keeps mypy from seeing that.
+        return cast("VoiceClient", ctx.voice_client)
+    active = _current_stream()
+    return None if active is None else active.voice_client
+
+
+def _stream_location(active: _ActiveStream | None) -> str:
+    guild_name = getattr(
+        getattr(getattr(active, "voice_client", None), "guild", None), "name", None
+    )
+    return f" in **{guild_name}**" if isinstance(guild_name, str) else ""
 
 
 def _guild_id_of(voice_client: object, ctx: discord.ApplicationContext) -> int | None:
@@ -467,6 +496,7 @@ async def on_voice_state_update(
 )
 async def stream(ctx: discord.ApplicationContext) -> None:
     """Join the owner's voice channel and start streaming the configured audio device."""
+    global _stream_starting
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
@@ -482,9 +512,11 @@ async def stream(ctx: discord.ApplicationContext) -> None:
         )
         return
 
-    if ctx.voice_client is not None:
+    active = _current_stream()
+    if ctx.voice_client is not None or active is not None or _stream_starting:
+        # Ephemeral, so naming the server only tells the owner where it is.
         await ctx.respond(
-            "Already streaming in a voice channel. Use `/stop` before starting again.",
+            f"Already streaming{_stream_location(active)}. Use `/stop` before starting again.",
             ephemeral=True,
         )
         return
@@ -504,11 +536,14 @@ async def stream(ctx: discord.ApplicationContext) -> None:
             },
         )
 
-    if selected_backend == "sounddevice":
-        await _start_sounddevice_stream(ctx, channel, selected_device, _effective_volume(s))
-        return
-
-    await _start_ffmpeg_stream(ctx, channel, selected_device)
+    _stream_starting = True
+    try:
+        if selected_backend == "sounddevice":
+            await _start_sounddevice_stream(ctx, channel, selected_device, _effective_volume(s))
+        else:
+            await _start_ffmpeg_stream(ctx, channel, selected_device)
+    finally:
+        _stream_starting = False
 
 
 @bot.slash_command(
@@ -522,10 +557,10 @@ async def stop(ctx: discord.ApplicationContext) -> None:
 
     await ctx.defer(ephemeral=True)
 
-    if ctx.voice_client is None:
+    voice_client = _voice_client_for(ctx)
+    if voice_client is None:
         await ctx.respond("Not currently in a voice channel.", ephemeral=True)
         return
-    voice_client: Any = ctx.voice_client
     await _teardown(voice_client)
     logger.info("stream_stopped")
     await ctx.respond("Stopped streaming.")
@@ -540,13 +575,13 @@ async def status(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
-    if ctx.voice_client is None:
+    vc = _voice_client_for(ctx)
+    if vc is None:
         await ctx.respond(
             "Not streaming. Use `/stream` from a voice channel to start.", ephemeral=True
         )
         return
 
-    vc = ctx.voice_client
     source = _active_sounddevice_source(vc)
     if source is not None:
         if source.state == "reacquiring":
@@ -600,7 +635,8 @@ async def volume(ctx: discord.ApplicationContext, level: float | None = None) ->
         return
 
     _set_volume_override(level)
-    source = _active_sounddevice_source(ctx.voice_client) if ctx.voice_client is not None else None
+    voice_client = _voice_client_for(ctx)
+    source = _active_sounddevice_source(voice_client) if voice_client is not None else None
     if source is not None:
         source.set_volume(level)
         await ctx.respond(f"Updated active stream volume to `{level:g}`.", ephemeral=True)

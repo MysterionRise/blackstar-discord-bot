@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the voice channel, or after no human is left in it, with a short public
   notice. Rejoining within the grace period cancels it. If the bot itself is
   kicked or disconnected, the capture device is released straight away
+- One stream per instance: `/stream` is refused while the amp is already
+  streaming anywhere, including another server, or while another `/stream` is
+  still connecting. `/stop`, `/status` and `/volume` act on the active stream
+  from any server the bot is in
 
 ### Security
 
