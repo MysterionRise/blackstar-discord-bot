@@ -108,6 +108,10 @@ The bot also stops on its own 30 seconds after you leave its voice channel, or
 after the channel empties, so the amp is never left broadcasting to nobody (or
 to people you left behind). Rejoining within those 30 seconds keeps it running.
 
+There is only one amp, so there is only ever one stream. While it runs,
+`/stream` is refused everywhere, and `/stop`, `/status` and `/volume` work from
+any server the bot is in.
+
 ## Access control
 
 Every command exposes local audio hardware, so all commands are restricted to a
