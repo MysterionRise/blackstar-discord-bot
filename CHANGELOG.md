@@ -56,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Blocking PortAudio work no longer runs on the bot's event loop. Device
+  re-enumeration, lookup and stream start in `/stream`, the device list in
+  `/devices`, and capture teardown (which can wait seconds for the watchdog)
+  now run in worker threads, so the gateway heartbeat and other commands keep
+  responding. PortAudio re-enumeration, device queries and stream opening are
+  serialized by one lock, so `/devices` can no longer query PortAudio while the
+  watchdog thread is reinitializing it
 - Capture latency is now bounded to roughly 40–100 ms. The capture buffer held
   up to 50 frames (1 s) and dropped only one frame per overrun, so a small
   clock drift between the amp and the voice player left audio sitting about
