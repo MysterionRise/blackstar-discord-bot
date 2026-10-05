@@ -32,6 +32,14 @@ BYTES_PER_FRAME = SAMPLES_PER_FRAME * CHANNELS * 2  # 3840
 
 SILENCE = b"\x00" * BYTES_PER_FRAME
 
+# Capture buffer bounds, in 20 ms frames. The amp's USB clock and the voice
+# player's clock drift apart, so the buffer slowly fills; on overrun it is
+# trimmed back to the target depth instead of sitting at the ceiling. Latency
+# therefore stays between TARGET and MAX frames (40-100 ms).
+MAX_BUFFER_FRAMES = 5
+TARGET_BUFFER_FRAMES = 2
+OVERRUN_LOG_INTERVAL_SECONDS = 10.0
+
 WATCHDOG_INTERVAL_SECONDS = 0.5
 STARVATION_SECONDS = 1.0
 RETRY_BACKOFF_SECONDS = 2.0
@@ -67,7 +75,7 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         # vanished device gets reassigned to an unrelated input.
         self._device_query = device.name if device_query is None else device_query
         self._on_unavailable = on_unavailable
-        self._buffer: queue.Queue[bytes] = queue.Queue(maxsize=50)
+        self._buffer: queue.Queue[bytes] = queue.Queue(maxsize=MAX_BUFFER_FRAMES)
         self._stream: sd.RawInputStream | None = None
         self._lock = threading.Lock()
         self._state: CaptureState = "stopped"
@@ -75,6 +83,9 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         self._shutdown = threading.Event()
         self._watchdog: threading.Thread | None = None
         self._unavailable_fired = False
+        # Overrun bookkeeping; written only from PortAudio's callback thread.
+        self._dropped_frames = 0
+        self._last_overrun_log = -math.inf
         # Last, so that a rejected volume still leaves cleanup() — which
         # discord.AudioSource.__del__ calls — something valid to work with.
         self._volume = self._validate_volume(volume)
@@ -127,12 +138,33 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         try:
             self._buffer.put_nowait(data)
         except queue.Full:
-            # Drop oldest frame on overrun to keep latency low.
-            logger.warning("Audio buffer overrun — dropping oldest frame to maintain low latency")
-            with contextlib.suppress(queue.Empty):
-                self._buffer.get_nowait()
+            self._trim_on_overrun()
             with contextlib.suppress(queue.Full):
                 self._buffer.put_nowait(data)
+
+    def _trim_on_overrun(self) -> None:
+        """Drop the oldest frames down to the target depth, logging sparingly.
+
+        Runs on PortAudio's real-time thread, so it logs at most once per
+        ``OVERRUN_LOG_INTERVAL_SECONDS`` rather than on every callback.
+        """
+        while self._buffer.qsize() >= TARGET_BUFFER_FRAMES:
+            try:
+                self._buffer.get_nowait()
+            except queue.Empty:
+                break
+            self._dropped_frames += 1
+
+        now = time.monotonic()
+        if now - self._last_overrun_log >= OVERRUN_LOG_INTERVAL_SECONDS:
+            logger.warning(
+                "buffer_overrun dropped=%d frames — trimmed capture buffer to %d frames "
+                "to keep latency low",
+                self._dropped_frames,
+                TARGET_BUFFER_FRAMES,
+            )
+            self._dropped_frames = 0
+            self._last_overrun_log = now
 
     @staticmethod
     def _status_is_benign(status: sd.CallbackFlags) -> bool:
@@ -201,8 +233,10 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         if self.state != "running":
             return SILENCE
 
+        # Never block: the voice player calls this every 20 ms and a late frame
+        # stalls its timing loop. An empty buffer plays a frame of silence.
         try:
-            data = self._buffer.get(timeout=0.05)
+            data = self._buffer.get_nowait()
         except queue.Empty:
             return SILENCE
 

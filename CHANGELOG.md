@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Capture latency is now bounded to roughly 40–100 ms. The capture buffer held
+  up to 50 frames (1 s) and dropped only one frame per overrun, so a small
+  clock drift between the amp and the voice player left audio sitting about
+  1 s behind the guitar. It now holds at most 5 frames and trims back to 2 on
+  overrun. Overrun warnings are rate-limited to one every 10 s, instead of up
+  to 50 a second from the audio thread, and `read()` no longer blocks the
+  voice player for up to 50 ms when the buffer is empty
 - Require py-cord >= 2.8.0. Discord enforced the DAVE end-to-end-encryption
   protocol on 2 March 2026 and closes voice websockets from older clients with
   code 4017, so 2.7.x cannot join a voice channel at all
