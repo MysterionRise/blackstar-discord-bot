@@ -189,6 +189,10 @@ backups). Set `LOG_FILE=` to an empty value to log to stderr only. A configured
 path that cannot be opened stops startup rather than silently dropping the audit
 trail.
 
+Log lines carry their context as `key=value` fields (for example
+`voice_connect_failed channel=General attempt=2`). Set `LOG_LEVEL` to `DEBUG`,
+`INFO` (default), `WARNING` or `ERROR` to control how much is written.
+
 ## Docker (Linux hosts only, experimental)
 
 Docker Desktop on macOS and Windows runs containers in a Linux VM that cannot
