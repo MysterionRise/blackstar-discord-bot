@@ -1,6 +1,7 @@
 """Integration tests for bot commands (mocked Discord client)."""
 
 import inspect
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord.voice
@@ -584,3 +585,77 @@ async def test_devices_command_refreshes_the_list_before_listing():
         await devices(ctx)
 
     assert calls == ["refresh", "list"]
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_start_failure_disconnects_and_explains():
+    """A failed FFmpeg start must not leave the bot sitting silently in voice."""
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    vc = AsyncMock()
+    vc.play = _play_mock()
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    settings = _mock_settings()
+    settings.audio_backend = "ffmpeg"
+    streams_before = dict(bot_module._active_streams)
+
+    with (
+        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch(
+            "blackstar_bot.bot_sounddevice.discord.FFmpegPCMAudio",
+            side_effect=RuntimeError("ffmpeg not found"),
+        ),
+    ):
+        await stream(ctx)
+
+    vc.disconnect.assert_awaited_once()
+    vc.play.assert_not_called()
+    reply = ctx.respond.await_args[0][0]
+    assert "Could not start FFmpeg streaming" in reply
+    assert "ffmpeg not found" in reply
+    assert _was_ephemeral(ctx)
+    assert bot_module._active_streams == streams_before
+    assert bot_module._stream_starting is False
+
+
+@pytest.mark.asyncio
+async def test_volume_without_a_level_reports_the_configured_volume():
+    ctx = _make_ctx()
+
+    await volume(ctx)
+
+    ctx.respond.assert_awaited_once_with("Current configured volume is `1`.", ephemeral=True)
+
+
+@pytest.mark.asyncio
+async def test_volume_without_a_level_reports_an_override():
+    """After /volume 0.4, a bare /volume shows the override, not the .env value."""
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    bot_module._volume_override = 0.4
+    ctx = _make_ctx()
+
+    await volume(ctx)
+
+    ctx.respond.assert_awaited_once_with("Current configured volume is `0.4`.", ephemeral=True)
+
+
+@pytest.mark.asyncio
+async def test_debug_config_logs_the_stream_settings_without_the_token(caplog):
+    import blackstar_bot.bot_sounddevice as bot_module
+
+    bot_module._settings.debug_config = True
+    ctx = _make_ctx(in_voice=True)
+
+    with (
+        caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"),
+        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
+    ):
+        await stream(ctx)
+
+    [record] = [r for r in caplog.records if r.getMessage() == "stream_config"]
+    assert record.backend == "sounddevice"
+    assert record.device == "Blackstar"
+    assert record.volume == 1.0
+    assert all("fake-token" not in str(vars(r)) for r in caplog.records)

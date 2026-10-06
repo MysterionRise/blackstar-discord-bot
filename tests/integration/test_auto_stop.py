@@ -115,7 +115,7 @@ async def test_empty_channel_stops_the_stream_even_if_the_owner_never_spoke():
 
 
 async def test_owner_rejoining_within_the_grace_period_keeps_streaming(monkeypatch):
-    monkeypatch.setattr(bot_module, "AUTO_STOP_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(bot_module, "AUTO_STOP_GRACE_SECONDS", 60)
     owner = _member(OWNER_ID)
     voice_client = _voice_client(owner)
     bot_module._register_stream(_ctx(), voice_client)
@@ -123,7 +123,8 @@ async def test_owner_rejoining_within_the_grace_period_keeps_streaming(monkeypat
     await _leave(voice_client, owner)
     pending = _pending_auto_stop()
     await _join(voice_client, owner)
-    await asyncio.sleep(0.1)
+    with pytest.raises(asyncio.CancelledError):
+        await pending
 
     assert pending.cancelled()
     voice_client.disconnect.assert_not_awaited()
