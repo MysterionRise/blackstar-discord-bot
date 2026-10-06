@@ -14,8 +14,8 @@ four specialised subagents. Your responsibilities:
 | Agent | Owns | Do NOT ask it to |
 |---|---|---|
 | `audio_agent` | `src/blackstar_bot/audio_source.py`, `src/blackstar_bot/device_finder.py` | Touch bot commands or CI files |
-| `bot_agent` | `src/blackstar_bot/bot_sounddevice.py`, `src/blackstar_bot/config.py` | Modify audio internals or CI |
-| `infra_agent` | `pyproject.toml`, `.pre-commit-config.yaml`, `.github/**`, `scripts/**` | Write application logic |
+| `bot_agent` | `src/blackstar_bot/bot_sounddevice.py`, `config.py`, `authz.py`, `startup.py`, `logging_setup.py`, `setup_wizard.py` | Modify audio internals or CI |
+| `infra_agent` | `pyproject.toml`, `.pre-commit-config.yaml`, `.github/**`, `scripts/**`, `Dockerfile`, `docker-compose.yml` | Write application logic |
 | `qa_agent` | `tests/**`, coverage reports | Write production code |
 
 ## Pre-flight rule (CRITICAL)
