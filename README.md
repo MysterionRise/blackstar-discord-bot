@@ -262,10 +262,19 @@ scripts/
 
 ## Configuration & Troubleshooting
 
-`AUDIO_DEVICE` is a case-insensitive substring match, so `Blackstar` should match
-typical Blackstar USB devices. If streaming fails, run `python scripts/list_devices.py`
-or `/devices` to confirm the amp is visible. The sounddevice backend requires a
-48 kHz input device; wrong-rate devices are rejected before playback starts.
+`AUDIO_DEVICE` matches device names case-insensitively. An exact name wins;
+otherwise it is a substring match, so `Blackstar` should match typical Blackstar
+USB devices. If it matches several different inputs, `/stream` refuses and lists
+them, and `AUDIO_DEVICE` should be set to one of those exact names. When the same
+device appears under several host APIs (Windows lists each input under MME,
+DirectSound and WASAPI), the native API is preferred: WASAPI, Core Audio or ALSA
+over MME.
+
+If streaming fails, run `/devices` (it re-scans for hot-plugged devices when
+nothing is streaming) or `python scripts/list_devices.py` to confirm the amp is
+visible. The sounddevice backend needs a stereo input that PortAudio can open at
+48 kHz; the device's default rate may differ. Devices that cannot are rejected
+before playback starts, with the reason.
 
 Set `DEBUG_CONFIG=true` to log the selected backend, device, and volume without
 printing the Discord token. Linux and Windows FFmpeg paths are best-effort and

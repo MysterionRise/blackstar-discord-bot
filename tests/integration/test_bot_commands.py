@@ -9,7 +9,7 @@ import pytest
 from blackstar_bot.audio_source import BlackstarAudioSource
 from blackstar_bot.authz import UNAUTHORIZED_MESSAGE
 from blackstar_bot.bot_sounddevice import devices, status, stop, stream, volume
-from blackstar_bot.device_finder import AudioDevice
+from blackstar_bot.device_finder import AmbiguousDeviceError, AudioDevice
 
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
@@ -546,3 +546,41 @@ async def test_non_owner_is_refused_without_deferring():
 
     ctx.defer.assert_not_awaited()
     ctx.respond.assert_awaited_once_with(UNAUTHORIZED_MESSAGE, ephemeral=True)
+
+
+@pytest.mark.asyncio
+async def test_stream_refuses_an_ambiguous_device_query_and_lists_the_candidates():
+    """Guessing between two inputs could stream the wrong one; ask for an exact name."""
+    ctx = _make_ctx(in_voice=True)
+    ambiguous = AmbiguousDeviceError("Blackstar", ["Blackstar ID:Core V4", "Blackstar ID:Core 20"])
+
+    with patch("blackstar_bot.bot_sounddevice.find_device_by_name", side_effect=ambiguous):
+        await stream(ctx)
+
+    ctx.author.voice.channel.connect.assert_not_awaited()
+    reply = ctx.respond.await_args[0][0]
+    assert "`Blackstar ID:Core V4`" in reply
+    assert "`Blackstar ID:Core 20`" in reply
+    assert "AUDIO_DEVICE" in reply
+    assert _was_ephemeral(ctx)
+
+
+@pytest.mark.asyncio
+async def test_devices_command_refreshes_the_list_before_listing():
+    """A device plugged in after startup must show up without restarting the bot."""
+    ctx = _make_ctx(in_voice=True)
+    calls = []
+
+    with (
+        patch(
+            "blackstar_bot.bot_sounddevice.refresh_devices_if_idle",
+            side_effect=lambda: calls.append("refresh"),
+        ),
+        patch(
+            "blackstar_bot.bot_sounddevice.list_input_devices",
+            side_effect=lambda: calls.append("list") or [_fake_device()],
+        ),
+    ):
+        await devices(ctx)
+
+    assert calls == ["refresh", "list"]

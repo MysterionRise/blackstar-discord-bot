@@ -3,11 +3,22 @@
 import logging
 from unittest.mock import patch
 
+import pytest
+
+from blackstar_bot import device_finder
 from blackstar_bot.device_finder import (
+    AmbiguousDeviceError,
+    AudioDevice,
+    capture_problem,
     find_device_by_name,
     list_input_devices,
     live_device_name,
+    match_devices,
+    note_stream_closed,
+    note_stream_opened,
     refresh_devices,
+    refresh_devices_if_idle,
+    select_device,
 )
 
 FAKE_DEVICES = [
@@ -15,6 +26,22 @@ FAKE_DEVICES = [
     {"name": "Blackstar ID:Core V4", "max_input_channels": 2, "default_samplerate": 48000.0},
     {"name": "HDMI Output", "max_input_channels": 0, "default_samplerate": 48000.0},
 ]
+
+
+@pytest.fixture(autouse=True)
+def capture_supported(monkeypatch):
+    """PortAudio accepts 48 kHz stereo on every device unless a test says otherwise."""
+    monkeypatch.setattr(device_finder.sd, "check_input_settings", lambda **_kwargs: None)
+
+
+def _device(index, name, hostapi="", *, channels=2, rate=48000.0):
+    return AudioDevice(
+        index=index,
+        name=name,
+        max_input_channels=channels,
+        default_samplerate=rate,
+        hostapi=hostapi,
+    )
 
 
 @patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
@@ -110,3 +137,146 @@ def test_portaudio_lock_is_reentrant(_mock):
 
     with portaudio_lock():
         assert find_device_by_name("blackstar") is not None
+
+
+@patch(
+    "blackstar_bot.device_finder.sd.query_hostapis",
+    return_value=[{"name": "MME"}, {"name": "Windows WASAPI"}],
+)
+@patch(
+    "blackstar_bot.device_finder.sd.query_devices",
+    return_value=[
+        {**FAKE_DEVICES[1], "hostapi": 0},
+        {**FAKE_DEVICES[1], "hostapi": 1},
+        {**FAKE_DEVICES[1], "hostapi": 7},
+    ],
+)
+def test_list_input_devices_names_the_host_api(_devices, _hostapis):
+    assert [d.hostapi for d in list_input_devices()] == ["MME", "Windows WASAPI", ""]
+
+
+@patch("blackstar_bot.device_finder.sd.query_hostapis", side_effect=RuntimeError("boom"))
+@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+def test_list_input_devices_survives_a_host_api_query_error(_devices, _hostapis):
+    assert [d.hostapi for d in list_input_devices()] == ["", ""]
+
+
+def test_exact_name_wins_over_a_longer_name_containing_it():
+    """A full device name must select that device even if another name contains it."""
+    devices = [_device(1, "USB Audio Device (2)"), _device(2, "USB Audio Device")]
+
+    assert [d.index for d in match_devices(devices, "usb audio device")] == [2]
+
+
+def test_ambiguous_substring_is_refused_with_the_candidates():
+    devices = [
+        _device(1, "Blackstar ID:Core V4"),
+        _device(2, "USB Audio CODEC"),
+        _device(3, "Focusrite USB"),
+    ]
+
+    with pytest.raises(AmbiguousDeviceError) as excinfo:
+        match_devices(devices, "usb")
+
+    assert excinfo.value.candidates == ["Focusrite USB", "USB Audio CODEC"]
+    assert "usb" in str(excinfo.value)
+
+
+def test_the_same_device_under_several_host_apis_is_not_ambiguous():
+    """Windows lists each input under MME (truncated) as well as WASAPI."""
+    devices = [
+        _device(1, "Microphone (Blackstar ID:Core V", "MME"),
+        _device(2, "Microphone (Blackstar ID:Core V4)", "Windows WASAPI"),
+        _device(3, "Microphone (Blackstar ID:Core V4)", "Windows DirectSound"),
+    ]
+
+    assert [d.index for d in match_devices(devices, "blackstar")] == [2, 3, 1]
+
+
+def test_select_device_prefers_the_native_host_api_over_mme():
+    devices = [
+        _device(1, "Blackstar ID:Core V4", "MME", rate=44100.0),
+        _device(2, "Blackstar ID:Core V4", "Windows WASAPI"),
+    ]
+
+    assert select_device(devices, "Blackstar").index == 2
+
+
+def test_select_device_skips_a_host_api_that_cannot_capture_48k(monkeypatch):
+    def _check(*, device, **_kwargs):
+        if device == 2:
+            raise RuntimeError("Invalid sample rate")
+
+    monkeypatch.setattr(device_finder.sd, "check_input_settings", _check)
+    devices = [
+        _device(1, "Blackstar ID:Core V4", "MME"),
+        _device(2, "Blackstar ID:Core V4", "Windows WASAPI"),
+    ]
+
+    assert select_device(devices, "Blackstar").index == 1
+
+
+def test_select_device_returns_the_best_match_even_when_none_can_capture(monkeypatch):
+    """Opening it then fails with the reason, instead of claiming nothing matched."""
+    devices = [_device(1, "Blackstar ID:Core V4", "MME", channels=1)]
+
+    assert select_device(devices, "Blackstar").index == 1
+
+
+def test_select_device_returns_none_without_a_match():
+    assert select_device([_device(1, "Built-in Microphone")], "Blackstar") is None
+
+
+def test_capture_problem_accepts_a_device_that_supports_48k_stereo():
+    """A 44.1 kHz default is fine as long as PortAudio can open it at 48 kHz."""
+    assert capture_problem(_device(1, "Interface", rate=44100.0)) is None
+
+
+def test_capture_problem_checks_discord_format(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        device_finder.sd, "check_input_settings", lambda **kwargs: calls.append(kwargs)
+    )
+
+    capture_problem(_device(4, "Interface"))
+
+    assert calls == [{"device": 4, "channels": 2, "dtype": "int16", "samplerate": 48000}]
+
+
+def test_capture_problem_reports_a_mono_device():
+    problem = capture_problem(_device(1, "Mono Mic", channels=1))
+
+    assert problem is not None
+    assert "1 input channel" in problem
+
+
+def test_capture_problem_reports_an_unsupported_sample_rate(monkeypatch):
+    def _reject(**_kwargs):
+        raise RuntimeError("Invalid sample rate")
+
+    monkeypatch.setattr(device_finder.sd, "check_input_settings", _reject)
+
+    problem = capture_problem(_device(1, "Old Interface"))
+
+    assert problem is not None
+    assert "48000 Hz" in problem
+    assert "Invalid sample rate" in problem
+
+
+@patch("blackstar_bot.device_finder.refresh_devices")
+def test_refresh_if_idle_reinitializes_with_no_stream_open(mock_refresh):
+    assert refresh_devices_if_idle() is True
+    mock_refresh.assert_called_once()
+
+
+@patch("blackstar_bot.device_finder.refresh_devices")
+def test_refresh_if_idle_leaves_an_open_stream_alone(mock_refresh):
+    """Reinitializing PortAudio under a live stream is undefined behaviour."""
+    note_stream_opened()
+    try:
+        assert refresh_devices_if_idle() is False
+        mock_refresh.assert_not_called()
+    finally:
+        note_stream_closed()
+
+    assert refresh_devices_if_idle() is True

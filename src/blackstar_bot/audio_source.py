@@ -15,8 +15,15 @@ import numpy as np
 import sounddevice as sd
 
 from blackstar_bot.device_finder import (
+    CHANNELS,
+    SAMPLE_DTYPE,
+    SAMPLE_RATE,
+    AmbiguousDeviceError,
+    capture_problem,
     find_device_by_name,
     live_device_name,
+    note_stream_closed,
+    note_stream_opened,
     portaudio_lock,
     refresh_devices,
 )
@@ -29,8 +36,8 @@ if TYPE_CHECKING:
     from blackstar_bot.device_finder import AudioDevice
 
 # Discord expects 48kHz, 16-bit stereo, 20ms frames → 3840 bytes per read().
-SAMPLE_RATE = 48000
-CHANNELS = 2
+# The format itself (SAMPLE_RATE, CHANNELS) lives in device_finder, which checks
+# devices against it.
 FRAME_DURATION_MS = 20
 SAMPLES_PER_FRAME = SAMPLE_RATE * FRAME_DURATION_MS // 1000  # 960
 BYTES_PER_FRAME = SAMPLES_PER_FRAME * CHANNELS * 2  # 3840
@@ -184,20 +191,13 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
 
     def start(self) -> None:
         """Open the PortAudio stream and begin capturing audio."""
-        self._require_supported_samplerate(self._device)
+        problem = capture_problem(self._device)
+        if problem is not None:
+            raise ValueError(problem)
         self._open_verified_stream(self._device)
         with self._lock:
             self._state = "running"
         self._start_watchdog()
-
-    @staticmethod
-    def _require_supported_samplerate(device: AudioDevice) -> None:
-        if device.default_samplerate != SAMPLE_RATE:
-            msg = (
-                f"Device '{device.name}' runs at "
-                f"{device.default_samplerate} Hz, but 48000 Hz is required."
-            )
-            raise ValueError(msg)
 
     def _open_verified_stream(self, device: AudioDevice) -> None:
         """Open a stream on *device* and confirm the index is still that device.
@@ -205,6 +205,8 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         PortAudio's cached device list can name an amp that is already
         unplugged, and its index may now be a microphone. Verifying the live
         name after opening is what keeps a stale index from being streamed.
+        The name must be the selected device's exact name: a loose query such
+        as "USB" would otherwise accept whatever USB input took the index.
 
         Held under the PortAudio lock throughout, so a re-enumeration cannot
         land between opening the index and checking what it now names.
@@ -213,24 +215,26 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
             stream = sd.RawInputStream(
                 samplerate=SAMPLE_RATE,
                 channels=CHANNELS,
-                dtype="int16",
+                dtype=SAMPLE_DTYPE,
                 blocksize=SAMPLES_PER_FRAME,
                 device=device.index,
                 callback=self._audio_callback,
                 finished_callback=self._on_stream_finished,
             )
-            stream.start()
-
-            opened_name = live_device_name(device.index)
-            if opened_name is None or self._device_query.lower() not in opened_name.lower():
+            note_stream_opened()
+            try:
+                stream.start()
+                opened_name = live_device_name(device.index)
+                if opened_name is None or opened_name.lower() != device.name.lower():
+                    msg = (
+                        f"Capture device at index {device.index} reports as "
+                        f"{opened_name!r}, not {device.name!r}; refusing to stream."
+                    )
+                    raise DeviceIdentityError(msg)
+            except BaseException:
                 self._force_close(stream)
                 self._drain_buffer()
-                msg = (
-                    f"Capture device at index {device.index} reports as "
-                    f"{opened_name!r}, which does not match {self._device_query!r}; "
-                    "refusing to stream."
-                )
-                raise DeviceIdentityError(msg)
+                raise
 
         with self._lock:
             self._stream = stream
@@ -340,15 +344,16 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
 
     def _try_reacquire(self) -> bool:
         refresh_devices()
-        device = find_device_by_name(self._device_query)
+        try:
+            device = find_device_by_name(self._device_query)
+        except AmbiguousDeviceError as exc:
+            logger.warning("reacquire_ambiguous candidates=%s", exc.candidates)
+            return False
         if device is None:
             return False
-        if device.default_samplerate != SAMPLE_RATE:
-            logger.warning(
-                "reacquire_rejected device=%s rate=%s — 48000 Hz is required",
-                device.name,
-                device.default_samplerate,
-            )
+        problem = capture_problem(device)
+        if problem is not None:
+            logger.warning("reacquire_rejected device=%s — %s", device.name, problem)
             return False
 
         try:
@@ -382,10 +387,12 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
 
     @staticmethod
     def _force_close(stream: sd.RawInputStream) -> None:
+        """Stop and close *stream*; called exactly once per opened stream."""
         with contextlib.suppress(Exception):
             stream.stop()
         with contextlib.suppress(Exception):
             stream.close()
+        note_stream_closed()
 
     def _close_stream(self) -> None:
         with self._lock:

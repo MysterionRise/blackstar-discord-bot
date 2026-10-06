@@ -55,10 +55,15 @@ def _ctx(voice_client=None):
 
 async def test_devices_command_lists_inputs_off_the_event_loop():
     threads = {}
-    with patch.object(bot_module, "list_input_devices", _recording(threads, "list", [])):
+    with (
+        patch.object(bot_module, "refresh_devices_if_idle", _recording(threads, "refresh")),
+        patch.object(bot_module, "list_input_devices", _recording(threads, "list", [])),
+    ):
         await devices(_ctx())
 
-    assert threads["list"] != threading.get_ident()
+    loop_thread = threading.get_ident()
+    assert {"refresh", "list"} <= threads.keys()
+    assert all(thread != loop_thread for thread in threads.values())
 
 
 async def test_stream_start_runs_portaudio_work_off_the_event_loop():

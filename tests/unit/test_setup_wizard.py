@@ -28,6 +28,7 @@ def wizard(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(setup_wizard, "refresh_devices", lambda: None)
     monkeypatch.setattr(setup_wizard, "list_input_devices", _devices)
+    monkeypatch.setattr(setup_wizard, "capture_problem", lambda _device: None)
     monkeypatch.setattr(setup_wizard.getpass, "getpass", lambda _prompt: TOKEN)
     monkeypatch.setattr(setup_wizard, "_say", lambda _message: None)
 
@@ -186,7 +187,7 @@ def test_write_env_tightens_permissions_before_writing(tmp_path, monkeypatch):
     assert modes_at_write == [0o600]
 
 
-def test_main_warns_about_sample_rate_for_a_typed_device_name(wizard, monkeypatch):
+def test_main_warns_when_a_typed_device_cannot_capture(wizard, monkeypatch):
     """Typing a name must not skip the check that picking by number gets."""
     said = []
     monkeypatch.setattr(setup_wizard, "_say", said.append)
@@ -199,8 +200,41 @@ def test_main_warns_about_sample_rate_for_a_typed_device_name(wizard, monkeypatc
             )
         ],
     )
+    monkeypatch.setattr(
+        setup_wizard,
+        "capture_problem",
+        lambda device: f"'{device.name}' cannot capture 48000 Hz 16-bit stereo: Invalid rate",
+    )
     wizard(["", "", "usb audio"])
 
     setup_wizard.main()
 
-    assert any("44100 Hz" in message for message in said)
+    assert any("cannot capture 48000 Hz" in message for message in said)
+
+
+def test_main_warns_when_a_picked_device_cannot_capture(wizard, monkeypatch):
+    said = []
+    monkeypatch.setattr(setup_wizard, "_say", said.append)
+    monkeypatch.setattr(
+        setup_wizard,
+        "capture_problem",
+        lambda device: f"'{device.name}' has 1 input channel(s), but 2 are required.",
+    )
+    wizard(["", "", "1"])
+
+    setup_wizard.main()
+
+    assert any("1 input channel" in message for message in said)
+
+
+def test_main_asks_again_when_a_typed_name_is_ambiguous(wizard, monkeypatch, tmp_path):
+    """The bot refuses an ambiguous query, so the wizard must not save one."""
+    said = []
+    monkeypatch.setattr(setup_wizard, "_say", said.append)
+    wizard(["", "", "o", "Blackstar"])
+
+    setup_wizard.main()
+
+    assert any("matches several inputs" in message for message in said)
+    assert any("MacBook Pro Microphone" in message for message in said)
+    assert 'AUDIO_DEVICE="Blackstar"' in (tmp_path / ".env").read_text()
