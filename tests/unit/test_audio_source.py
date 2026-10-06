@@ -2,6 +2,7 @@
 
 import logging
 import struct
+import threading
 import time
 
 import numpy as np
@@ -587,15 +588,6 @@ def test_give_up_survives_a_failing_callback(device_48k):
     assert source.state == "stopped"
 
 
-def _wait_until(predicate, timeout=3.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.01)
-    return False
-
-
 def test_watchdog_resumes_audio_once_the_device_returns(device_48k, fake_streams, monkeypatch):
     """End to end: a loss mutes capture, and the watchdog brings it back."""
     monkeypatch.setattr(audio_source, "WATCHDOG_INTERVAL_SECONDS", 0.01)
@@ -605,11 +597,23 @@ def test_watchdog_resumes_audio_once_the_device_returns(device_48k, fake_streams
     _reports(monkeypatch, BLACKSTAR_NAME)
 
     source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    reacquired = threading.Event()
+    real_try_reacquire = source._try_reacquire
+
+    def _signalling_try_reacquire():
+        resumed = real_try_reacquire()
+        if resumed:
+            reacquired.set()
+        return resumed
+
+    monkeypatch.setattr(source, "_try_reacquire", _signalling_try_reacquire)
+
     source.start()
     try:
         source._signal_loss("unplugged")
         assert source.read() == SILENCE
-        assert _wait_until(lambda: source.state == "running"), "watchdog never re-acquired"
+        assert reacquired.wait(timeout=5), "watchdog never re-acquired"
+        assert source.state == "running"
     finally:
         source.cleanup()
 
@@ -623,16 +627,52 @@ def test_watchdog_gives_up_when_the_device_stays_gone(device_48k, fake_streams, 
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: None)
     _reports(monkeypatch, BLACKSTAR_NAME)
 
-    calls = []
-    source = BlackstarAudioSource(
-        device_48k, device_query="Blackstar", on_unavailable=lambda: calls.append(1)
-    )
+    gave_up = threading.Event()
+    source = BlackstarAudioSource(device_48k, device_query="Blackstar", on_unavailable=gave_up.set)
     source.start()
     try:
         source._signal_loss("unplugged")
-        assert _wait_until(lambda: bool(calls)), "watchdog never gave up"
+        assert gave_up.wait(timeout=5), "watchdog never gave up"
         assert source.state == "stopped"
         assert source.read() == SILENCE
+    finally:
+        source.cleanup()
+
+
+def test_cleanup_from_the_watchdog_thread_does_not_join_itself(
+    device_48k, fake_streams, monkeypatch
+):
+    """The give-up callback may tear the source down from the watchdog thread."""
+    monkeypatch.setattr(audio_source, "WATCHDOG_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(audio_source, "RETRY_BACKOFF_SECONDS", 0.0)
+    monkeypatch.setattr(audio_source, "REACQUIRE_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: None)
+    _reports(monkeypatch, BLACKSTAR_NAME)
+
+    cleaned_up = threading.Event()
+    cleanup_threads = []
+
+    def _cleanup_from_callback():
+        cleanup_threads.append(threading.current_thread())
+        source.cleanup()
+        cleaned_up.set()
+
+    source = BlackstarAudioSource(
+        device_48k, device_query="Blackstar", on_unavailable=_cleanup_from_callback
+    )
+    source.start()
+    watchdog = source._watchdog
+    assert watchdog is not None
+    try:
+        source._signal_loss("unplugged")
+        assert cleaned_up.wait(timeout=5), "cleanup() from the watchdog thread never returned"
+        watchdog.join(timeout=5)
+
+        assert cleanup_threads == [watchdog]
+        assert not watchdog.is_alive()
+        assert source.state == "stopped"
+        assert fake_streams[0].closed is True
     finally:
         source.cleanup()
 

@@ -1,13 +1,19 @@
 """Tests for blackstar_bot.bot_sounddevice helpers."""
 
-from unittest.mock import MagicMock, patch
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from pydantic import ValidationError
 
+import blackstar_bot.bot_sounddevice as bot_module
 from blackstar_bot.bot_sounddevice import (
+    _connect_with_retry,
     _ffmpeg_input_args,
     _format_device_list,
     _resolve_guild_ids,
+    main,
+    on_ready,
 )
 from blackstar_bot.device_finder import AudioDevice
 
@@ -72,3 +78,102 @@ def test_format_device_list_includes_device_details():
     assert "Blackstar ID:Core V4" in output
     assert "2 input channels" in output
     assert "48000 Hz" in output
+
+
+def test_suite_is_isolated_from_local_configuration():
+    """A developer's .env or exported GUILD_ID must not scope the commands under test."""
+    assert bot_module.GUILD_IDS is None
+
+
+GUILD_ID = 123456789012345678
+
+
+def _run_main(monkeypatch, *, guild_id, guild_ids):
+    settings = MagicMock(guild_id=guild_id, discord_token="fake-token")
+    fake_bot = MagicMock()
+    monkeypatch.setattr(bot_module, "_get_settings", lambda: settings)
+    monkeypatch.setattr(bot_module, "configure_logging", MagicMock())
+    monkeypatch.setattr(bot_module, "bot", fake_bot)
+    monkeypatch.setattr(bot_module, "GUILD_IDS", guild_ids)
+    main()
+    bot_module.configure_logging.assert_called_once_with(settings)
+    fake_bot.run.assert_called_once_with("fake-token")
+
+
+def _logged(caplog):
+    return [record.getMessage() for record in caplog.records]
+
+
+def test_main_says_commands_are_global_without_guild_id(monkeypatch, caplog):
+    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+        _run_main(monkeypatch, guild_id=None, guild_ids=None)
+
+    assert any(message.startswith("guild_scope_global") for message in _logged(caplog))
+
+
+def test_main_warns_when_guild_id_was_unreadable_at_registration(monkeypatch, caplog):
+    """GUILD_ID set now but not at import means commands went out globally."""
+    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+        _run_main(monkeypatch, guild_id=GUILD_ID, guild_ids=None)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(r.getMessage().startswith("guild_scope_unavailable") for r in warnings)
+
+
+def test_main_is_quiet_about_scope_when_commands_are_guild_scoped(monkeypatch, caplog):
+    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+        _run_main(monkeypatch, guild_id=GUILD_ID, guild_ids=[GUILD_ID])
+
+    assert not any(message.startswith("guild_scope") for message in _logged(caplog))
+
+
+async def test_on_ready_logs_in_and_announces_startup(monkeypatch, caplog):
+    settings = MagicMock()
+    fake_bot = MagicMock()
+    fake_bot.user.id = 555555555555555555
+    announce = AsyncMock()
+    monkeypatch.setattr(bot_module, "bot", fake_bot)
+    monkeypatch.setattr(bot_module, "_get_settings", lambda: settings)
+    monkeypatch.setattr(bot_module, "announce_startup", announce)
+
+    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+        await on_ready()
+
+    announce.assert_awaited_once_with(fake_bot, settings)
+    assert any("555555555555555555" in message for message in _logged(caplog))
+
+
+@pytest.fixture
+def no_retry_delay(monkeypatch):
+    monkeypatch.setattr(bot_module, "CONNECT_RETRY_DELAY_SECONDS", 0)
+
+
+async def test_connect_retries_after_a_failed_attempt(no_retry_delay):
+    voice_client = MagicMock()
+    channel = MagicMock()
+    channel.connect = AsyncMock(side_effect=[RuntimeError("handshake failed"), voice_client])
+
+    assert await _connect_with_retry(channel) is voice_client
+    assert channel.connect.await_count == 2
+
+
+async def test_connect_gives_up_with_the_last_error(no_retry_delay):
+    channel = MagicMock()
+    errors = [RuntimeError(f"attempt {n}") for n in range(1, bot_module.CONNECT_ATTEMPTS + 1)]
+    channel.connect = AsyncMock(side_effect=errors)
+
+    with pytest.raises(RuntimeError, match=f"attempt {bot_module.CONNECT_ATTEMPTS}"):
+        await _connect_with_retry(channel)
+
+    assert channel.connect.await_count == bot_module.CONNECT_ATTEMPTS
+
+
+async def test_connect_without_any_attempt_raises(monkeypatch):
+    monkeypatch.setattr(bot_module, "CONNECT_ATTEMPTS", 0)
+    channel = MagicMock()
+    channel.connect = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="without an exception"):
+        await _connect_with_retry(channel)
+
+    channel.connect.assert_not_awaited()
