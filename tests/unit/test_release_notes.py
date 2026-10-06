@@ -40,12 +40,12 @@ def test_extracts_the_last_section_with_an_unreleased_suffix():
 
 
 def test_does_not_match_a_version_prefix():
-    with pytest.raises(ValueError, match=r"no '## \[0.2\]' section"):
+    with pytest.raises(ValueError, match=r"no '## \[0\.2\]' section"):
         release_notes(CHANGELOG, "0.2")
 
 
 def test_missing_version_is_an_error():
-    with pytest.raises(ValueError, match="no '## \\[9.9.9\\]' section"):
+    with pytest.raises(ValueError, match=r"no '## \[9\.9\.9\]' section"):
         release_notes(CHANGELOG, "9.9.9")
 
 
