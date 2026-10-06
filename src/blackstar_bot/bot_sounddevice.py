@@ -16,10 +16,12 @@ from blackstar_bot.audio_source import BlackstarAudioSource
 from blackstar_bot.authz import require_owner
 from blackstar_bot.config import Settings
 from blackstar_bot.device_finder import (
+    AmbiguousDeviceError,
     AudioDevice,
     find_device_by_name,
     list_input_devices,
     refresh_devices,
+    refresh_devices_if_idle,
 )
 from blackstar_bot.logging_setup import configure_logging
 from blackstar_bot.startup import announce_startup
@@ -111,15 +113,26 @@ def _ffmpeg_input_args(device_name: str) -> tuple[str, str]:
     return (f"hw:{device_name}", "-f alsa -ar 48000 -ac 2")
 
 
+def _list_devices_fresh() -> list[AudioDevice]:
+    """List input devices, re-enumerated so hot-plug changes show up.
+
+    Reinitializing PortAudio under an open stream is undefined behaviour, so a
+    listing taken while streaming shows PortAudio's cached list instead.
+    """
+    refresh_devices_if_idle()
+    return list_input_devices()
+
+
 def _format_device_list(devices: list[AudioDevice]) -> str:
     if not devices:
         return "No audio input devices were detected."
 
     lines = ["Detected audio input devices:"]
     for device in devices[:MAX_DEVICE_LIST_ITEMS]:
+        hostapi = f"{device.hostapi}, " if device.hostapi else ""
         lines.append(
-            f"- `{device.name}` ({device.max_input_channels} input channels, "
-            f"{device.default_samplerate:g} Hz)"
+            f"- `{device.name}` ({hostapi}{device.max_input_channels} input channels, "
+            f"{device.default_samplerate:g} Hz default)"
         )
     if len(devices) > MAX_DEVICE_LIST_ITEMS:
         lines.append(f"...and {len(devices) - MAX_DEVICE_LIST_ITEMS} more.")
@@ -354,7 +367,17 @@ async def _start_sounddevice_stream(
     # be listed with an index that now belongs to another input.
     # Both reinitialize or query PortAudio, which blocks; run them off the loop.
     await asyncio.to_thread(refresh_devices)
-    device = await asyncio.to_thread(find_device_by_name, device_name)
+    try:
+        device = await asyncio.to_thread(find_device_by_name, device_name)
+    except AmbiguousDeviceError as exc:
+        logger.info("audio_device_ambiguous", extra={"candidates": exc.candidates})
+        names = "\n".join(f"- `{name}`" for name in exc.candidates)
+        await ctx.respond(
+            f"Audio device query '{device_name}' matches several inputs:\n{names}\n"
+            "Set `AUDIO_DEVICE` to one of these exact names.",
+            ephemeral=True,
+        )
+        return
     if device is None:
         logger.info("audio_device_not_found", extra={"device_query": device_name})
         await ctx.respond(
@@ -611,7 +634,7 @@ async def devices(ctx: discord.ApplicationContext) -> None:
     if not await require_owner(ctx, _get_settings().owner_id):
         return
 
-    detected_devices = await asyncio.to_thread(list_input_devices)
+    detected_devices = await asyncio.to_thread(_list_devices_fresh)
     logger.info("audio_devices_listed", extra={"count": len(detected_devices)})
     await ctx.respond(_format_device_list(detected_devices), ephemeral=True)
 

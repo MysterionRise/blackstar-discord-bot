@@ -91,6 +91,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `/stream` and `/stop` now defer the interaction before connecting to voice,
   so Discord no longer reports "The application did not respond" while the
   voice handshake is in flight
+- Audio device matching no longer settles for the first substring hit:
+  - An exact name wins.
+  - A query that matches several different inputs is refused, and the
+    candidates are listed.
+  - On Windows the WASAPI listing is preferred over the MME duplicate.
+  - The stream identity check now requires the selected device's exact name,
+    so a loose query such as `USB` cannot accept whichever USB input took the
+    amp's index.
+- The sounddevice backend asks PortAudio whether a device can capture 48 kHz
+  16-bit stereo instead of trusting its default rate. Interfaces that default
+  to 44.1 kHz now work, and mono inputs are refused up front with a clear reason
+  rather than failing at stream open.
+- `/devices` re-scans for hot-plugged devices first, unless a capture stream is
+  open, and shows each device's host API
+- A capture stream that opened but failed to start is now closed instead of
+  leaked
 
 ### Changed
 

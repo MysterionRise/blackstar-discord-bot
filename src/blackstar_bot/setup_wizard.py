@@ -6,8 +6,14 @@ import getpass
 import os
 from pathlib import Path
 
-from blackstar_bot.audio_source import SAMPLE_RATE
-from blackstar_bot.device_finder import AudioDevice, list_input_devices, refresh_devices
+from blackstar_bot.device_finder import (
+    AmbiguousDeviceError,
+    AudioDevice,
+    capture_problem,
+    list_input_devices,
+    refresh_devices,
+    select_device,
+)
 
 ENV_PATH = Path(".env")
 BACKUP_PATH = Path(".env.bak")
@@ -124,7 +130,8 @@ def _ask_device() -> str:
 
     _say("\nDetected audio inputs:")
     for position, device in enumerate(devices, start=1):
-        _say(f"  {position}. {device.name} ({device.default_samplerate:g} Hz)")
+        hostapi = f"{device.hostapi}, " if device.hostapi else ""
+        _say(f"  {position}. {device.name} ({hostapi}{device.default_samplerate:g} Hz default)")
 
     while True:
         raw = _ask(f"\nPick a number, or type a name to match [{DEFAULT_DEVICE_QUERY}]: ").strip()
@@ -134,27 +141,26 @@ def _ask_device() -> str:
                 _say("  No device with that number.")
                 continue
             device = devices[chosen - 1]
-            _warn_on_sample_rate(device)
+            _warn_if_unusable(device)
             return device.name
         query = raw or DEFAULT_DEVICE_QUERY
-        matched = _match_device(devices, query)
+        try:
+            matched = select_device(devices, query)
+        except AmbiguousDeviceError as exc:
+            _say(f"  '{query}' matches several inputs; the bot would refuse it:")
+            for name in exc.candidates:
+                _say(f"    - {name}")
+            _say("  Pick a number or type a more specific name.")
+            continue
         if matched is not None:
-            _warn_on_sample_rate(matched)
+            _warn_if_unusable(matched)
         return query
 
 
-def _match_device(devices: list[AudioDevice], query: str) -> AudioDevice | None:
-    """Return the device the bot will pick for *query*, as ``find_device_by_name`` does."""
-    needle = query.lower()
-    return next((device for device in devices if needle in device.name.lower()), None)
-
-
-def _warn_on_sample_rate(device: AudioDevice) -> None:
-    if device.default_samplerate != SAMPLE_RATE:
-        _say(
-            f"  Note: '{device.name}' runs at {device.default_samplerate:g} Hz. "
-            f"The sounddevice backend needs {SAMPLE_RATE} Hz and will refuse it."
-        )
+def _warn_if_unusable(device: AudioDevice) -> None:
+    problem = capture_problem(device)
+    if problem is not None:
+        _say(f"  Note: {problem} The sounddevice backend will refuse it.")
 
 
 def main() -> None:

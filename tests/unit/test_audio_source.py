@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pytest
 
-from blackstar_bot import audio_source
+from blackstar_bot import audio_source, device_finder
 from blackstar_bot.audio_source import (
     BYTES_PER_FRAME,
     MAX_BUFFER_FRAMES,
@@ -18,7 +18,7 @@ from blackstar_bot.audio_source import (
     BlackstarAudioSource,
     DeviceIdentityError,
 )
-from blackstar_bot.device_finder import AudioDevice
+from blackstar_bot.device_finder import AmbiguousDeviceError, AudioDevice
 
 BLACKSTAR_NAME = "Blackstar ID:Core V4"
 OTHER_DEVICE_NAME = "MacBook Pro Microphone"
@@ -89,7 +89,17 @@ def fake_streams(monkeypatch):
             return stream
 
     monkeypatch.setattr(audio_source, "sd", _FakeSD)
+    monkeypatch.setattr(audio_source, "capture_problem", lambda _device: None)
     return created
+
+
+def _cannot_capture(monkeypatch):
+    """Make PortAudio refuse Discord's format on every device."""
+    monkeypatch.setattr(
+        audio_source,
+        "capture_problem",
+        lambda device: f"'{device.name}' cannot capture 48000 Hz 16-bit stereo: Invalid rate",
+    )
 
 
 def _reports(monkeypatch, name):
@@ -134,11 +144,15 @@ def test_cleanup_is_idempotent(device_48k):
     source.cleanup()  # Should not raise
 
 
-def test_start_rejects_wrong_sample_rate(device_44k):
-    """start() should raise ValueError for non-48kHz devices."""
+def test_start_rejects_a_device_that_cannot_capture_48k(device_44k, fake_streams, monkeypatch):
+    """start() raises ValueError, without opening anything, if PortAudio refuses the format."""
+    _cannot_capture(monkeypatch)
     source = BlackstarAudioSource(device_44k)
+
     with pytest.raises(ValueError, match="48000"):
         source.start()
+
+    assert fake_streams == []
 
 
 def test_read_applies_volume_scaling(device_48k):
@@ -341,6 +355,65 @@ def test_start_refuses_when_index_holds_another_device(device_48k, fake_streams,
     assert source.read() == SILENCE
 
 
+def test_start_refuses_a_live_name_that_only_contains_the_query(
+    device_48k, fake_streams, monkeypatch
+):
+    """The identity check wants the selected device, not anything the query matches."""
+    _reports(monkeypatch, f"{BLACKSTAR_NAME} (2)")
+    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+
+    with pytest.raises(DeviceIdentityError):
+        source.start()
+
+    assert fake_streams[0].closed is True
+
+
+def test_start_closes_the_stream_if_it_fails_to_start(device_48k, fake_streams, monkeypatch):
+    """A stream that opened but failed to start is closed, not leaked."""
+    _reports(monkeypatch, BLACKSTAR_NAME)
+
+    def _fail():
+        raise RuntimeError("device busy")
+
+    source = BlackstarAudioSource(device_48k)
+    real_open = audio_source.sd.RawInputStream
+
+    def _open_failing(**kwargs):
+        stream = real_open(**kwargs)
+        stream.start = _fail
+        return stream
+
+    monkeypatch.setattr(audio_source.sd, "RawInputStream", _open_failing)
+
+    with pytest.raises(RuntimeError, match="device busy"):
+        source.start()
+
+    assert fake_streams[0].closed is True
+    assert device_finder._open_streams == 0
+
+
+def test_open_streams_are_counted_until_closed(device_48k, fake_streams, monkeypatch):
+    """/devices relies on this count to avoid reinitializing PortAudio mid-stream."""
+    _reports(monkeypatch, BLACKSTAR_NAME)
+    source = BlackstarAudioSource(device_48k)
+
+    source.start()
+    assert device_finder._open_streams == 1
+
+    source.cleanup()
+    assert device_finder._open_streams == 0
+
+
+def test_a_refused_stream_is_not_counted_as_open(device_48k, fake_streams, monkeypatch):
+    _reports(monkeypatch, OTHER_DEVICE_NAME)
+    source = BlackstarAudioSource(device_48k)
+
+    with pytest.raises(DeviceIdentityError):
+        source.start()
+
+    assert device_finder._open_streams == 0
+
+
 def test_start_refuses_when_live_name_is_unknown(device_48k, fake_streams, monkeypatch):
     """An unreadable device name is treated as a mismatch, not as a pass."""
     _reports(monkeypatch, None)
@@ -456,14 +529,34 @@ def test_reacquire_waits_while_device_is_absent(device_48k, monkeypatch):
     assert source.state == "reacquiring"
 
 
-def test_reacquire_rejects_wrong_sample_rate(device_48k, device_44k, monkeypatch):
-    """A match at the wrong rate is refused, as it is at start."""
+def test_reacquire_rejects_a_device_that_cannot_capture_48k(
+    device_48k, device_44k, fake_streams, monkeypatch
+):
+    """A match PortAudio cannot open at 48 kHz is refused, as it is at start."""
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_44k)
+    _cannot_capture(monkeypatch)
     source = BlackstarAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
     assert source._try_reacquire() is False
+    assert fake_streams == []
+
+
+def test_reacquire_refuses_an_ambiguous_query(device_48k, fake_streams, monkeypatch):
+    """If the query now matches several inputs, keep waiting rather than guess."""
+
+    def _ambiguous(query):
+        raise AmbiguousDeviceError(query, ["Blackstar ID:Core V4", "Blackstar ID:Core V4 (2)"])
+
+    monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
+    monkeypatch.setattr(audio_source, "find_device_by_name", _ambiguous)
+    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source._state = "reacquiring"
+
+    assert source._try_reacquire() is False
+    assert source.state == "reacquiring"
+    assert fake_streams == []
 
 
 def test_give_up_notifies_once_and_stops(device_48k):
