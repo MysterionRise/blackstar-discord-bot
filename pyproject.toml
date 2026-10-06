@@ -38,6 +38,16 @@ dev = [
   "pre-commit>=3.7.0",
 ]
 
+# -- Commitizen ---------------------------------------------------------------
+# `cz bump` updates [project].version and tags vX.Y.Z, matching release.yml's
+# trigger. CHANGELOG.md is written by hand, so bump leaves it alone.
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_provider = "pep621"
+update_changelog_on_bump = false
+
 # -- Ruff ---------------------------------------------------------------------
 
 [tool.ruff]

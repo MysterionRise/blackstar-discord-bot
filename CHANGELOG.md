@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Release notes now come from this file: the release workflow publishes the
+  `CHANGELOG.md` section for the pushed `vX.Y.Z` tag, and fails if the tag does
+  not match the `pyproject.toml` version. It previously ran `cz changelog` with
+  no Commitizen config, whose default tag format never matched the `v` tags.
+  The package version is now read from `pyproject.toml` only
 - Structured log fields are no longer dropped. Context passed to the logger
   (device, backend, volume, channel, attempt number and so on) was missing from
   every log line because the format had no place for it, so `DEBUG_CONFIG=true`

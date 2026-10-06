@@ -227,6 +227,17 @@ pytest
 pre-commit run --all-files
 ```
 
+## Releasing
+
+1. In `CHANGELOG.md`, turn the `Unreleased` heading into the new version with a
+   date, e.g. `## [0.2.0] - 2026-11-01`.
+2. Set the same version in `pyproject.toml` (or run `cz bump`, which also creates
+   the tag). `pyproject.toml` is the only place the version lives.
+3. Push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The release workflow publishes that version's `CHANGELOG.md` section as the
+GitHub Release notes, and fails if the tag and `pyproject.toml` disagree.
+
 ## Project Structure
 
 ```
@@ -246,6 +257,7 @@ tests/
 scripts/
   create_labels.sh     # Bulk-create GitHub labels
   list_devices.py      # List available audio input devices
+  release_notes.py     # CHANGELOG.md section for a release tag (used by CI)
 ```
 
 ## Configuration & Troubleshooting
