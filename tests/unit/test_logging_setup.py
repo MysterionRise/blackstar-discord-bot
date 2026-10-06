@@ -101,11 +101,12 @@ def test_extras_formatter_appends_extra_fields():
 
 
 def test_extras_formatter_leaves_plain_records_unchanged():
-    formatter = ExtrasFormatter(LOG_FORMAT)
+    # One record for both formatters: two records can straddle a millisecond
+    # boundary and differ in their timestamps.
     record = _record("plain_message")
 
-    assert formatter.format(record) == logging.Formatter(LOG_FORMAT).format(
-        _record("plain_message")
+    assert ExtrasFormatter(LOG_FORMAT).format(record) == logging.Formatter(LOG_FORMAT).format(
+        record
     )
 
 
