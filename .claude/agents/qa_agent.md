@@ -14,6 +14,10 @@ You own test coverage, test quality, and quality gates.
 - Coverage must not drop below **70%**. If a PR causes a drop, flag it to the
   orchestrator before merging.
 - Unit tests live in `tests/unit/`, integration tests in `tests/integration/`.
+- No timing-based waits: synchronise on `threading.Event`s or awaited tasks,
+  never `time.sleep` or `asyncio.sleep` polling.
+- `tests/conftest.py` keeps the developer's `.env` and environment out of
+  `Settings` before the bot module is imported. Pass settings explicitly.
 - Every new public function added by `audio_agent` or `bot_agent` must have
   at least one test before the task is marked complete.
 
@@ -22,7 +26,8 @@ You own test coverage, test quality, and quality gates.
 - `read()` returns silence bytes (not `b""`) on buffer underrun
 - `cleanup()` is idempotent (safe to call twice)
 - `find_device_by_name()` returns `None` for unknown device names
-- `find_device_by_name()` is case-insensitive
+- `find_device_by_name()` is case-insensitive, and an ambiguous query raises
+  `AmbiguousDeviceError`
 
 ## Reporting
 When reporting coverage results, always include:

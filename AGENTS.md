@@ -5,7 +5,11 @@
 This is a Python 3.12 Discord voice bot packaged from `src/blackstar_bot/`.
 Core modules live there: `bot_sounddevice.py` is the bot, capturing via
 sounddevice or FFmpeg (`AUDIO_BACKEND`), `audio_source.py` handles live capture,
-`device_finder.py` discovers USB audio devices, and `config.py` loads settings.
+`device_finder.py` discovers and selects audio devices, and `config.py` loads settings.
+`authz.py` restricts every command to the owner, `startup.py` resolves that owner
+and logs the invite link, `logging_setup.py` configures logging, and
+`setup_wizard.py` is `blackstar-bot-setup`. `PLAN.md` describes the architecture
+and the device-safety rules.
 Tests are under `tests/`, split into `tests/unit/` for mocked component tests and
 `tests/integration/` for higher-level bot command behavior. Utility scripts live
 in `scripts/`, including `scripts/list_devices.py` for local audio-device checks.
@@ -38,7 +42,9 @@ appropriate.
 Pytest is configured in `pyproject.toml` with `asyncio_mode = "auto"` and a
 minimum coverage threshold of 70% for `src/blackstar_bot`. Name tests as
 `test_*.py` and keep hardware, Discord, and audio APIs mocked unless a manual
-hardware check is explicitly required. Add or update unit tests for behavior in
+hardware check is explicitly required. Synchronise on events or awaited tasks
+rather than sleeping, and keep the developer's `.env` out of the suite (see
+`tests/conftest.py`). Add or update unit tests for behavior in
 individual modules and integration tests for command-level flows.
 
 ## Commit & Pull Request Guidelines

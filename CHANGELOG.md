@@ -110,6 +110,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- README, `PLAN.md`, `AGENTS.md` and the `.claude/agents` prompts describe the
+  current code. Changes:
+  - a per-platform requirements table
+  - a reference for every setting, including `VOLUME`
+  - per-platform FFmpeg device naming
+  - the full module map and device-safety design
+  - the real `Settings` schema
 - Command replies that expose local hardware or exception text are now
   ephemeral; only the stream start/stop notices remain visible to the channel
 - `OWNER_ID` is optional again: unset, it resolves to the owner of the bot's

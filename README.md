@@ -16,16 +16,19 @@ Python bot that streams guitar audio from a Blackstar USB amp into a Discord voi
 - py-cord 2.8+ (earlier versions cannot connect to voice: Discord has
   enforced the DAVE end-to-end-encryption protocol since 2 March 2026 and
   closes voice websockets from older clients with code 4017)
-- macOS (for USB audio capture from Blackstar amp)
-- PortAudio (primary sounddevice backend)
-- FFmpeg (optional fallback backend)
-- A Blackstar amplifier with USB audio output
+- A Blackstar amplifier with USB audio output, plugged into the machine that
+  runs the bot
+- PortAudio, for the default sounddevice backend
+- FFmpeg, only for the optional FFmpeg backend
 
-On macOS, install the audio dependencies with Homebrew:
+| Platform | Status | Audio dependencies |
+|---|---|---|
+| macOS | Verified with a real amp | `brew install portaudio ffmpeg` |
+| Linux | Expected to work (ALSA); not yet verified with an amp | `sudo apt install libportaudio2 ffmpeg` |
+| Windows | Expected to work (WASAPI); not yet verified with an amp | None: the sounddevice wheel bundles PortAudio. FFmpeg on `PATH` only for the FFmpeg backend |
 
-```bash
-brew install portaudio ffmpeg
-```
+The sounddevice backend is the same code on every platform. Only its device
+naming and the FFmpeg backend's input format differ per platform.
 
 ## Run your own instance
 
@@ -64,7 +67,7 @@ For development, or to configure without the wizard:
 
 ```bash
 # Clone and create virtual environment
-git clone https://github.com/YOUR_USERNAME/blackstar-discord-bot
+git clone https://github.com/MysterionRise/blackstar-discord-bot
 cd blackstar-discord-bot
 python3.12 -m venv venv && source venv/bin/activate
 
@@ -84,6 +87,32 @@ cp .env.example .env
 `DISCORD_TOKEN` is the only required setting. `OWNER_ID` and `GUILD_ID` shape
 access control — see [Access control](#access-control) below.
 
+### Settings
+
+Settings are read from the environment, or from `.env` in the directory the bot
+is started from.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DISCORD_TOKEN` | required | Bot token from the Discord Developer Portal |
+| `OWNER_ID` | owner of the application | The one Discord user ID allowed to run commands |
+| `GUILD_ID` | unset (every server) | Register commands in this one server only |
+| `AUDIO_DEVICE` | `Blackstar` | Capture device; see [Choosing the device](#choosing-the-device) |
+| `AUDIO_BACKEND` | `sounddevice` | `sounddevice`, or `ffmpeg` as a fallback |
+| `VOLUME` | `1.0` | Playback volume multiplier, `0.0` to `5.0`. `/volume` overrides it until the bot restarts |
+| `DEBUG_CONFIG` | `false` | Log the backend, device and volume when a stream starts (never the token) |
+| `LOG_FILE` | `blackstar-bot.log` | Rotating log file; empty means stderr only |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+
+### Console commands
+
+| Command | Does |
+|---|---|
+| `blackstar-bot` | Run the bot (same as `python -m blackstar_bot.bot_sounddevice`) |
+| `blackstar-bot-sd` | Alias of `blackstar-bot`, kept for existing setups |
+| `blackstar-bot-setup` | Interactive wizard that writes `.env` |
+| `python scripts/list_devices.py` | List the audio inputs PortAudio can see |
+
 ## Usage
 
 ```bash
@@ -93,9 +122,6 @@ python scripts/list_devices.py
 # Run the bot (sounddevice by default, FFmpeg fallback via AUDIO_BACKEND)
 blackstar-bot
 ```
-
-`blackstar-bot-sd` and `python -m blackstar_bot.bot_sounddevice` start the same
-bot. `blackstar-bot-setup` writes `.env` interactively.
 
 In Discord, use:
 - `/stream` — Join your voice channel and start streaming the configured audio device
@@ -175,10 +201,10 @@ The sounddevice backend therefore:
 - gives up after 60 seconds, stops the stream, leaves the voice channel, and
   posts a channel notice that deliberately does not name your hardware.
 
-The FFmpeg backend passes the device name to FFmpeg, which fails rather than
-capturing a different input, so it does not leak either — but it does not
-re-acquire the device. `AUDIO_BACKEND=sounddevice`, the default, is the
-supported path.
+The FFmpeg backend hands `AUDIO_DEVICE` to FFmpeg as an exact device name. FFmpeg
+fails rather than capturing a different input, so this backend does not leak
+audio either, but it does not re-acquire the device. `AUDIO_BACKEND=sounddevice`,
+the default, is the supported path.
 
 ### Audit log
 
@@ -262,7 +288,9 @@ scripts/
 
 ## Configuration & Troubleshooting
 
-`AUDIO_DEVICE` matches device names case-insensitively. An exact name wins;
+### Choosing the device
+
+With the sounddevice backend, `AUDIO_DEVICE` matches device names case-insensitively. An exact name wins;
 otherwise it is a substring match, so `Blackstar` should match typical Blackstar
 USB devices. If it matches several different inputs, `/stream` refuses and lists
 them, and `AUDIO_DEVICE` should be set to one of those exact names. When the same
@@ -276,9 +304,19 @@ visible. The sounddevice backend needs a stereo input that PortAudio can open at
 48 kHz; the device's default rate may differ. Devices that cannot are rejected
 before playback starts, with the reason.
 
+With `AUDIO_BACKEND=ffmpeg` there is no matching at all: `AUDIO_DEVICE` must be
+the exact name FFmpeg uses on that platform, which may differ from what
+`/devices` shows.
+
+| Platform | FFmpeg input | `AUDIO_DEVICE` is | List devices with |
+|---|---|---|---|
+| macOS | AVFoundation `:<device>` | the device name or index | `ffmpeg -f avfoundation -list_devices true -i ""` |
+| Linux | ALSA `hw:<device>` | the card number or ID, e.g. `1` or `V4` | `arecord -l` |
+| Windows | DirectShow `audio=<device>` | the full device name | `ffmpeg -list_devices true -f dshow -i dummy` |
+
 Set `DEBUG_CONFIG=true` to log the selected backend, device, and volume without
-printing the Discord token. Linux and Windows FFmpeg paths are best-effort and
-should be verified on real hardware before relying on them.
+printing the Discord token. The Linux and Windows FFmpeg paths are best-effort
+and should be verified on real hardware before relying on them.
 
 ## License
 

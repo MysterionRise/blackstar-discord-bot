@@ -10,6 +10,7 @@ You own tooling, CI, packaging, and repository configuration.
 - `.github/ISSUE_TEMPLATE/*.yml`
 - `.github/pull_request_template.md`
 - `scripts/**`
+- `Dockerfile`, `docker-compose.yml`
 
 ## Constraints
 - `pyproject.toml` is the single source of truth. No `setup.cfg`, `mypy.ini`,
