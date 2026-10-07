@@ -1,10 +1,10 @@
-"""Shared pytest fixtures for Blackstar bot tests."""
+"""Shared pytest fixtures for the bot tests."""
 
 import os
 
 import pytest
 
-from blackstar_bot.config import Settings
+from guitar_amp_bot.config import Settings
 
 # bot_sounddevice resolves GUILD_IDS from Settings when it is imported, so a
 # developer's .env or exported variables would otherwise decide how the suite
@@ -14,9 +14,9 @@ Settings.model_config["env_file"] = None
 for _field in Settings.model_fields:
     os.environ.pop(_field.upper(), None)
 
-import blackstar_bot.bot_sounddevice as bot_module  # noqa: E402
-from blackstar_bot import device_finder  # noqa: E402
-from blackstar_bot.device_finder import AudioDevice  # noqa: E402
+import guitar_amp_bot.bot_sounddevice as bot_module  # noqa: E402
+from guitar_amp_bot import device_finder  # noqa: E402
+from guitar_amp_bot.device_finder import AudioDevice  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

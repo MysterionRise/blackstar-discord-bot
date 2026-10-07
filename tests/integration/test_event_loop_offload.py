@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import blackstar_bot.bot_sounddevice as bot_module
-from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.bot_sounddevice import devices, stop, stream
-from blackstar_bot.device_finder import AudioDevice
+import guitar_amp_bot.bot_sounddevice as bot_module
+from guitar_amp_bot.audio_source import DeviceAudioSource
+from guitar_amp_bot.bot_sounddevice import devices, stop, stream
+from guitar_amp_bot.device_finder import AudioDevice
 
 OWNER_ID = 424242424242424242
 GUILD_ID = 123456789012345678
@@ -81,7 +81,7 @@ async def test_stream_start_runs_portaudio_work_off_the_event_loop():
     with (
         patch.object(bot_module, "refresh_devices", _recording(threads, "refresh")),
         patch.object(bot_module, "find_device_by_name", _recording(threads, "find", device)),
-        patch.object(bot_module, "BlackstarAudioSource", return_value=source),
+        patch.object(bot_module, "DeviceAudioSource", return_value=source),
     ):
         await stream(ctx)
 
@@ -96,7 +96,7 @@ async def test_stop_releases_the_capture_device_off_the_event_loop():
     voice_client = MagicMock()
     voice_client.is_playing.return_value = True
     voice_client.disconnect = AsyncMock()
-    voice_client.source = MagicMock(spec=BlackstarAudioSource)
+    voice_client.source = MagicMock(spec=DeviceAudioSource)
     voice_client.source.cleanup.side_effect = _recording(threads, "cleanup")
 
     await stop(_ctx(voice_client))

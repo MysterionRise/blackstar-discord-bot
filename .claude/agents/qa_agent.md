@@ -8,7 +8,7 @@ You own test coverage, test quality, and quality gates.
 
 ## Constraints
 - Use `pytest-asyncio` with `asyncio_mode = "auto"` (already configured).
-- Mock all hardware I/O — never require a physical Blackstar amp to run tests.
+- Mock all hardware I/O — never require a physical amp to run tests.
   Mock `sounddevice.RawInputStream`, FFmpeg subprocess calls, and
   `discord.VoiceClient` using `pytest-mock`.
 - Coverage must not drop below **70%**. If a PR causes a drop, flag it to the

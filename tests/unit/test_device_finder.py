@@ -1,12 +1,12 @@
-"""Tests for blackstar_bot.device_finder."""
+"""Tests for guitar_amp_bot.device_finder."""
 
 import logging
 from unittest.mock import patch
 
 import pytest
 
-from blackstar_bot import device_finder
-from blackstar_bot.device_finder import (
+from guitar_amp_bot import device_finder
+from guitar_amp_bot.device_finder import (
     AmbiguousDeviceError,
     AudioDevice,
     capture_problem,
@@ -44,7 +44,7 @@ def _device(index, name, hostapi="", *, channels=2, rate=48000.0):
     )
 
 
-@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+@patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
 def test_list_input_devices_filters_outputs(_mock):
     """Only devices with input channels should be returned."""
     devices = list_input_devices()
@@ -52,7 +52,7 @@ def test_list_input_devices_filters_outputs(_mock):
     assert all(d.max_input_channels > 0 for d in devices)
 
 
-@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+@patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
 def test_find_device_by_name_case_insensitive(_mock):
     """Device search should be case-insensitive."""
     device = find_device_by_name("blackstar")
@@ -60,27 +60,27 @@ def test_find_device_by_name_case_insensitive(_mock):
     assert device.name == "Blackstar ID:Core V4"
 
 
-@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+@patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
 def test_find_device_by_name_returns_none_for_unknown(_mock):
     """Unknown device names should return None."""
     device = find_device_by_name("Nonexistent Device")
     assert device is None
 
 
-@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES[1])
+@patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES[1])
 def test_live_device_name_returns_name_at_index(_mock):
     """The live name at an index backs the stream identity check."""
     assert live_device_name(1) == "Blackstar ID:Core V4"
 
 
-@patch("blackstar_bot.device_finder.sd.query_devices", side_effect=RuntimeError("boom"))
+@patch("guitar_amp_bot.device_finder.sd.query_devices", side_effect=RuntimeError("boom"))
 def test_live_device_name_returns_none_on_portaudio_error(_mock):
     """A query failure must not raise: the caller treats None as a mismatch."""
     assert live_device_name(1) is None
 
 
-@patch("blackstar_bot.device_finder.sd._initialize")
-@patch("blackstar_bot.device_finder.sd._terminate")
+@patch("guitar_amp_bot.device_finder.sd._initialize")
+@patch("guitar_amp_bot.device_finder.sd._terminate")
 def test_refresh_devices_reinitializes_portaudio(mock_terminate, mock_initialize):
     """Re-enumeration is the only way PortAudio notices a hot-unplug."""
     refresh_devices()
@@ -88,10 +88,10 @@ def test_refresh_devices_reinitializes_portaudio(mock_terminate, mock_initialize
     mock_initialize.assert_called_once()
 
 
-@patch("blackstar_bot.device_finder.sd._terminate", side_effect=RuntimeError("boom"))
+@patch("guitar_amp_bot.device_finder.sd._terminate", side_effect=RuntimeError("boom"))
 def test_refresh_devices_survives_portaudio_error(_mock, caplog):
     """A failed refresh is logged and non-fatal; the identity check still guards."""
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.device_finder"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.device_finder"):
         refresh_devices()
     assert any("portaudio_refresh_failed" in r.message for r in caplog.records)
 
@@ -109,9 +109,9 @@ def test_device_queries_wait_for_a_portaudio_reinitialization():
         assert release_reinit.wait(timeout=5)
 
     with (
-        patch("blackstar_bot.device_finder.sd._terminate", side_effect=_slow_terminate),
-        patch("blackstar_bot.device_finder.sd._initialize"),
-        patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES),
+        patch("guitar_amp_bot.device_finder.sd._terminate", side_effect=_slow_terminate),
+        patch("guitar_amp_bot.device_finder.sd._initialize"),
+        patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES),
     ):
         refresher = threading.Thread(target=refresh_devices)
         refresher.start()
@@ -130,21 +130,21 @@ def test_device_queries_wait_for_a_portaudio_reinitialization():
     assert query_done.is_set()
 
 
-@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+@patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
 def test_portaudio_lock_is_reentrant(_mock):
     """A caller holding the lock (stream open + verify) can still query devices."""
-    from blackstar_bot.device_finder import portaudio_lock
+    from guitar_amp_bot.device_finder import portaudio_lock
 
     with portaudio_lock():
         assert find_device_by_name("blackstar") is not None
 
 
 @patch(
-    "blackstar_bot.device_finder.sd.query_hostapis",
+    "guitar_amp_bot.device_finder.sd.query_hostapis",
     return_value=[{"name": "MME"}, {"name": "Windows WASAPI"}],
 )
 @patch(
-    "blackstar_bot.device_finder.sd.query_devices",
+    "guitar_amp_bot.device_finder.sd.query_devices",
     return_value=[
         {**FAKE_DEVICES[1], "hostapi": 0},
         {**FAKE_DEVICES[1], "hostapi": 1},
@@ -155,8 +155,8 @@ def test_list_input_devices_names_the_host_api(_devices, _hostapis):
     assert [d.hostapi for d in list_input_devices()] == ["MME", "Windows WASAPI", ""]
 
 
-@patch("blackstar_bot.device_finder.sd.query_hostapis", side_effect=RuntimeError("boom"))
-@patch("blackstar_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
+@patch("guitar_amp_bot.device_finder.sd.query_hostapis", side_effect=RuntimeError("boom"))
+@patch("guitar_amp_bot.device_finder.sd.query_devices", return_value=FAKE_DEVICES)
 def test_list_input_devices_survives_a_host_api_query_error(_devices, _hostapis):
     assert [d.hostapi for d in list_input_devices()] == ["", ""]
 
@@ -263,13 +263,13 @@ def test_capture_problem_reports_an_unsupported_sample_rate(monkeypatch):
     assert "Invalid sample rate" in problem
 
 
-@patch("blackstar_bot.device_finder.refresh_devices")
+@patch("guitar_amp_bot.device_finder.refresh_devices")
 def test_refresh_if_idle_reinitializes_with_no_stream_open(mock_refresh):
     assert refresh_devices_if_idle() is True
     mock_refresh.assert_called_once()
 
 
-@patch("blackstar_bot.device_finder.refresh_devices")
+@patch("guitar_amp_bot.device_finder.refresh_devices")
 def test_refresh_if_idle_leaves_an_open_stream_alone(mock_refresh):
     """Reinitializing PortAudio under a live stream is undefined behaviour."""
     note_stream_opened()

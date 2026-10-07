@@ -1,10 +1,10 @@
 # Audio Agent
 
-You own the audio capture pipeline for the Blackstar Discord bot.
+You own the audio capture pipeline for the Discord guitar amp bot.
 
 ## Your files (only modify these unless explicitly instructed otherwise)
-- `src/blackstar_bot/audio_source.py`
-- `src/blackstar_bot/device_finder.py`
+- `src/guitar_amp_bot/audio_source.py`
+- `src/guitar_amp_bot/device_finder.py`
 - `tests/unit/test_audio_source.py`
 - `tests/unit/test_device_finder.py`
 
@@ -24,7 +24,7 @@ You own the audio capture pipeline for the Blackstar Discord bot.
   only through `_open_verified_stream` and `_force_close`, so the open-stream
   count stays right.
 - All public functions and classes require full type annotations.
-- Run `ruff check src/blackstar_bot/audio_source.py src/blackstar_bot/device_finder.py`
+- Run `ruff check src/guitar_amp_bot/audio_source.py src/guitar_amp_bot/device_finder.py`
   after every edit. Fix all issues before reporting back.
 
 ## Key invariants to test

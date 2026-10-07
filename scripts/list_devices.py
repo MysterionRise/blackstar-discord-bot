@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from blackstar_bot.device_finder import list_input_devices
+from guitar_amp_bot.device_finder import list_input_devices
 
 
 def main() -> None:

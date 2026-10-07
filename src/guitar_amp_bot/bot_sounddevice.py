@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 import discord
 from pydantic import ValidationError
 
-from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.authz import require_owner
-from blackstar_bot.config import Settings
-from blackstar_bot.device_finder import (
+from guitar_amp_bot.audio_source import DeviceAudioSource
+from guitar_amp_bot.authz import require_owner
+from guitar_amp_bot.config import Settings
+from guitar_amp_bot.device_finder import (
     AmbiguousDeviceError,
     AudioDevice,
     find_device_by_name,
@@ -23,8 +23,8 @@ from blackstar_bot.device_finder import (
     refresh_devices,
     refresh_devices_if_idle,
 )
-from blackstar_bot.logging_setup import configure_logging
-from blackstar_bot.startup import announce_startup
+from guitar_amp_bot.logging_setup import configure_logging
+from guitar_amp_bot.startup import announce_startup
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -139,9 +139,9 @@ def _format_device_list(devices: list[AudioDevice]) -> str:
     return "\n".join(lines)
 
 
-def _active_sounddevice_source(voice_client: object) -> BlackstarAudioSource | None:
+def _active_sounddevice_source(voice_client: object) -> DeviceAudioSource | None:
     source = getattr(voice_client, "source", None)
-    if isinstance(source, BlackstarAudioSource):
+    if isinstance(source, DeviceAudioSource):
         return source
     return None
 
@@ -346,7 +346,7 @@ async def _handle_device_unavailable(
 
 def _after_playback(
     ctx: discord.ApplicationContext,
-    source: BlackstarAudioSource | None,
+    source: DeviceAudioSource | None,
     error: Exception | None,
 ) -> None:
     if source is not None:
@@ -388,11 +388,11 @@ async def _start_sounddevice_stream(
         return
 
     voice_client: VoiceClient | None = None
-    source: BlackstarAudioSource | None = None
+    source: DeviceAudioSource | None = None
     try:
         voice_client = await _connect_with_retry(channel)
         connected = voice_client
-        source = BlackstarAudioSource(
+        source = DeviceAudioSource(
             device,
             volume=volume,
             device_query=device_name,
@@ -516,7 +516,7 @@ async def on_voice_state_update(
 
 
 @bot.slash_command(
-    description="Stream Blackstar amp audio into your voice channel",
+    description="Stream your amp into your voice channel",
     guild_ids=GUILD_IDS,
 )
 async def stream(ctx: discord.ApplicationContext) -> None:

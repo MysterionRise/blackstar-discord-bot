@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord.voice
 import pytest
 
-from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.authz import UNAUTHORIZED_MESSAGE
-from blackstar_bot.bot_sounddevice import devices, status, stop, stream, volume
-from blackstar_bot.device_finder import AmbiguousDeviceError, AudioDevice
+from guitar_amp_bot.audio_source import DeviceAudioSource
+from guitar_amp_bot.authz import UNAUTHORIZED_MESSAGE
+from guitar_amp_bot.bot_sounddevice import devices, status, stop, stream, volume
+from guitar_amp_bot.device_finder import AmbiguousDeviceError, AudioDevice
 
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
@@ -34,7 +34,7 @@ def _play_mock():
 @pytest.fixture(autouse=True)
 def reset_runtime_state():
     """Reset module-level command state between tests."""
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
     bot_module._volume_override = None
     bot_module._settings = _mock_settings()
@@ -90,8 +90,8 @@ async def test_commands_reject_non_owner(command):
     ctx = _make_ctx(in_voice=True, author_id=INTRUDER_ID)
 
     with (
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name") as find_device,
-        patch("blackstar_bot.bot_sounddevice.list_input_devices") as list_devices,
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name") as find_device,
+        patch("guitar_amp_bot.bot_sounddevice.list_input_devices") as list_devices,
     ):
         await command(ctx)
 
@@ -119,11 +119,11 @@ async def test_stream_command_uses_configured_device_only():
     settings.audio_device = "Blackstar"
 
     with (
-        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings),
         patch(
-            "blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()
+            "guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()
         ) as find_device,
-        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+        patch("guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=MagicMock()),
     ):
         await stream(ctx)
 
@@ -156,8 +156,8 @@ async def test_stream_command_device_not_found():
     """The /stream command should report when the audio device is not found."""
     ctx = _make_ctx(in_voice=True)
     with (
-        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=None),
     ):
         await stream(ctx)
     ctx.respond.assert_awaited_once()
@@ -177,9 +177,9 @@ async def test_stream_command_disconnects_when_source_start_fails():
     source.start.side_effect = RuntimeError("bad sample rate")
 
     with (
-        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
-        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=source),
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=source),
     ):
         await stream(ctx)
 
@@ -201,9 +201,9 @@ async def test_stream_command_starts_sounddevice_stream():
     source = MagicMock()
 
     with (
-        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
-        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=source),
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=_mock_settings()),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=source),
     ):
         await stream(ctx)
 
@@ -227,8 +227,8 @@ async def test_stream_command_starts_ffmpeg_backend():
     ffmpeg_source = MagicMock()
 
     with (
-        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings),
-        patch("blackstar_bot.bot_sounddevice.discord.FFmpegPCMAudio", return_value=ffmpeg_source),
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch("guitar_amp_bot.bot_sounddevice.discord.FFmpegPCMAudio", return_value=ffmpeg_source),
     ):
         await stream(ctx)
 
@@ -260,7 +260,7 @@ async def test_stop_command_disconnects_when_playing():
 @pytest.mark.asyncio
 async def test_stop_command_cleans_up_when_not_playing():
     """The /stop command should cleanup source when not playing but source exists."""
-    mock_source = MagicMock(spec=BlackstarAudioSource)
+    mock_source = MagicMock(spec=DeviceAudioSource)
     vc = AsyncMock()
     vc.is_playing = MagicMock(return_value=False)
     vc.source = mock_source
@@ -287,7 +287,7 @@ async def test_stream_command_already_connected():
 async def test_devices_command_lists_detected_inputs():
     """The /devices command should format available input devices."""
     ctx = _make_ctx(in_voice=True)
-    with patch("blackstar_bot.bot_sounddevice.list_input_devices", return_value=[_fake_device()]):
+    with patch("guitar_amp_bot.bot_sounddevice.list_input_devices", return_value=[_fake_device()]):
         await devices(ctx)
 
     ctx.respond.assert_awaited_once()
@@ -310,7 +310,7 @@ async def test_status_command_when_not_streaming():
 @pytest.mark.asyncio
 async def test_status_command_reports_active_sounddevice_source():
     """The /status command should describe an active sounddevice stream."""
-    source = BlackstarAudioSource(_fake_device(), volume=0.75)
+    source = DeviceAudioSource(_fake_device(), volume=0.75)
     vc = AsyncMock()
     vc.source = source
     ctx = _make_ctx(in_voice=True, voice_client=vc)
@@ -324,7 +324,7 @@ async def test_status_command_reports_active_sounddevice_source():
 @pytest.mark.asyncio
 async def test_status_command_reports_a_lost_device():
     """A muted stream must look different from a quiet amp."""
-    source = BlackstarAudioSource(_fake_device())
+    source = DeviceAudioSource(_fake_device())
     source._state = "reacquiring"
     vc = AsyncMock()
     vc.source = source
@@ -341,7 +341,7 @@ async def test_status_command_reports_a_lost_device():
 async def test_volume_command_rejects_out_of_range_value():
     """The /volume command should validate user input."""
     ctx = _make_ctx(in_voice=True)
-    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()):
+    with patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=_mock_settings()):
         await volume(ctx, level=5.1)
     ctx.respond.assert_awaited_once()
     args = ctx.respond.await_args[0][0]
@@ -351,12 +351,12 @@ async def test_volume_command_rejects_out_of_range_value():
 @pytest.mark.asyncio
 async def test_volume_command_updates_active_source():
     """The /volume command should update active sounddevice streams."""
-    source = BlackstarAudioSource(_fake_device(), volume=1.0)
+    source = DeviceAudioSource(_fake_device(), volume=1.0)
     vc = AsyncMock()
     vc.source = source
     ctx = _make_ctx(in_voice=True, voice_client=vc)
 
-    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=_mock_settings()):
+    with patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=_mock_settings()):
         await volume(ctx, level=0.4)
 
     assert source.volume == 0.4
@@ -374,7 +374,7 @@ def _was_ephemeral(ctx):
 async def test_devices_command_replies_privately():
     """/devices lists local hardware, so it must never post to the channel."""
     ctx = _make_ctx(in_voice=True)
-    with patch("blackstar_bot.bot_sounddevice.list_input_devices", return_value=[_fake_device()]):
+    with patch("guitar_amp_bot.bot_sounddevice.list_input_devices", return_value=[_fake_device()]):
         await devices(ctx)
 
     assert _was_ephemeral(ctx)
@@ -384,7 +384,7 @@ async def test_devices_command_replies_privately():
 async def test_status_command_replies_privately_when_streaming():
     """/status names the capture device, so it stays private."""
     vc = AsyncMock()
-    vc.source = BlackstarAudioSource(_fake_device(), volume=1.0)
+    vc.source = DeviceAudioSource(_fake_device(), volume=1.0)
     ctx = _make_ctx(in_voice=True, voice_client=vc)
     await status(ctx)
 
@@ -411,8 +411,8 @@ async def test_stream_failure_reply_is_private():
     source.start.side_effect = RuntimeError("/Users/someone/secret path")
 
     with (
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
-        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=source),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=source),
     ):
         await stream(ctx)
 
@@ -429,8 +429,8 @@ async def test_successful_stream_and_stop_stay_public():
     ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
 
     with (
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
-        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=MagicMock()),
     ):
         await stream(ctx)
     assert not _was_ephemeral(ctx)
@@ -442,7 +442,7 @@ async def test_successful_stream_and_stop_stay_public():
 
 def test_playback_failure_notice_omits_exception_detail():
     """The channel-wide failure notice must not leak exception text."""
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
     captured = []
 
@@ -466,7 +466,7 @@ def test_playback_failure_notice_omits_exception_detail():
 
 def test_schedule_on_loop_discards_coroutine_without_a_loop():
     """No running loop must not leave a coroutine dangling."""
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
     async def _noop():
         return None
@@ -483,9 +483,9 @@ def test_schedule_on_loop_discards_coroutine_without_a_loop():
 @pytest.mark.asyncio
 async def test_device_unavailable_stops_streaming_without_naming_the_device():
     """The public notice must not name local hardware."""
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
-    source = BlackstarAudioSource(_fake_device())
+    source = DeviceAudioSource(_fake_device())
     voice_client = AsyncMock()
     voice_client.source = source
     voice_client.is_playing = MagicMock(return_value=True)
@@ -508,8 +508,8 @@ async def test_slow_commands_defer_before_working(command):
     """Voice work outlasts Discord's 3s deadline, so the interaction is acknowledged first."""
     ctx = _make_ctx(in_voice=True)
     with (
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
-        patch("blackstar_bot.bot_sounddevice._connect_with_retry"),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=None),
+        patch("guitar_amp_bot.bot_sounddevice._connect_with_retry"),
     ):
         await command(ctx)
 
@@ -530,9 +530,9 @@ async def test_stream_defers_before_connecting():
         return vc
 
     with (
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
-        patch("blackstar_bot.bot_sounddevice._connect_with_retry", _connect),
-        patch("blackstar_bot.bot_sounddevice.BlackstarAudioSource", return_value=MagicMock()),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()),
+        patch("guitar_amp_bot.bot_sounddevice._connect_with_retry", _connect),
+        patch("guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=MagicMock()),
     ):
         await stream(ctx)
 
@@ -555,7 +555,7 @@ async def test_stream_refuses_an_ambiguous_device_query_and_lists_the_candidates
     ctx = _make_ctx(in_voice=True)
     ambiguous = AmbiguousDeviceError("Blackstar", ["Blackstar ID:Core V4", "Blackstar ID:Core 20"])
 
-    with patch("blackstar_bot.bot_sounddevice.find_device_by_name", side_effect=ambiguous):
+    with patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", side_effect=ambiguous):
         await stream(ctx)
 
     ctx.author.voice.channel.connect.assert_not_awaited()
@@ -574,11 +574,11 @@ async def test_devices_command_refreshes_the_list_before_listing():
 
     with (
         patch(
-            "blackstar_bot.bot_sounddevice.refresh_devices_if_idle",
+            "guitar_amp_bot.bot_sounddevice.refresh_devices_if_idle",
             side_effect=lambda: calls.append("refresh"),
         ),
         patch(
-            "blackstar_bot.bot_sounddevice.list_input_devices",
+            "guitar_amp_bot.bot_sounddevice.list_input_devices",
             side_effect=lambda: calls.append("list") or [_fake_device()],
         ),
     ):
@@ -590,7 +590,7 @@ async def test_devices_command_refreshes_the_list_before_listing():
 @pytest.mark.asyncio
 async def test_ffmpeg_start_failure_disconnects_and_explains():
     """A failed FFmpeg start must not leave the bot sitting silently in voice."""
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
     vc = AsyncMock()
     vc.play = _play_mock()
@@ -601,9 +601,9 @@ async def test_ffmpeg_start_failure_disconnects_and_explains():
     streams_before = dict(bot_module._active_streams)
 
     with (
-        patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings),
         patch(
-            "blackstar_bot.bot_sounddevice.discord.FFmpegPCMAudio",
+            "guitar_amp_bot.bot_sounddevice.discord.FFmpegPCMAudio",
             side_effect=RuntimeError("ffmpeg not found"),
         ),
     ):
@@ -631,7 +631,7 @@ async def test_volume_without_a_level_reports_the_configured_volume():
 @pytest.mark.asyncio
 async def test_volume_without_a_level_reports_an_override():
     """After /volume 0.4, a bare /volume shows the override, not the .env value."""
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
     bot_module._volume_override = 0.4
     ctx = _make_ctx()
@@ -643,14 +643,14 @@ async def test_volume_without_a_level_reports_an_override():
 
 @pytest.mark.asyncio
 async def test_debug_config_logs_the_stream_settings_without_the_token(caplog):
-    import blackstar_bot.bot_sounddevice as bot_module
+    import guitar_amp_bot.bot_sounddevice as bot_module
 
     bot_module._settings.debug_config = True
     ctx = _make_ctx(in_voice=True)
 
     with (
-        caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"),
-        patch("blackstar_bot.bot_sounddevice.find_device_by_name", return_value=None),
+        caplog.at_level(logging.INFO, logger="guitar_amp_bot.bot_sounddevice"),
+        patch("guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=None),
     ):
         await stream(ctx)
 

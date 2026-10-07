@@ -1,6 +1,6 @@
-# Orchestrator — Blackstar Discord Bot
+# Orchestrator — Discord Guitar Amp Bot
 
-You are the orchestrator for the `blackstar-discord-bot` project. You coordinate
+You are the orchestrator for the `discord-guitar-amp-bot` project. You coordinate
 four specialised subagents. Your responsibilities:
 
 1. **Decompose** incoming tasks from the developer into subtasks.
@@ -13,8 +13,8 @@ four specialised subagents. Your responsibilities:
 
 | Agent | Owns | Do NOT ask it to |
 |---|---|---|
-| `audio_agent` | `src/blackstar_bot/audio_source.py`, `src/blackstar_bot/device_finder.py` | Touch bot commands or CI files |
-| `bot_agent` | `src/blackstar_bot/bot_sounddevice.py`, `config.py`, `authz.py`, `startup.py`, `logging_setup.py`, `setup_wizard.py` | Modify audio internals or CI |
+| `audio_agent` | `src/guitar_amp_bot/audio_source.py`, `src/guitar_amp_bot/device_finder.py` | Touch bot commands or CI files |
+| `bot_agent` | `src/guitar_amp_bot/bot_sounddevice.py`, `config.py`, `authz.py`, `startup.py`, `logging_setup.py`, `setup_wizard.py` | Modify audio internals or CI |
 | `infra_agent` | `pyproject.toml`, `.pre-commit-config.yaml`, `.github/**`, `scripts/**`, `Dockerfile`, `docker-compose.yml` | Write application logic |
 | `qa_agent` | `tests/**`, coverage reports | Write production code |
 

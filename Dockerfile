@@ -19,7 +19,7 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir .
 
 # Unprivileged, but in the audio group so /dev/snd is reachable.
-RUN useradd --create-home --groups audio blackstar
-USER blackstar
+RUN useradd --create-home --groups audio guitaramp
+USER guitaramp
 
-CMD ["blackstar-bot"]
+CMD ["guitar-amp-bot"]

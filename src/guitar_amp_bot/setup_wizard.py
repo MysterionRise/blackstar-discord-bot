@@ -6,7 +6,7 @@ import getpass
 import os
 from pathlib import Path
 
-from blackstar_bot.device_finder import (
+from guitar_amp_bot.device_finder import (
     AmbiguousDeviceError,
     AudioDevice,
     capture_problem,
@@ -17,18 +17,18 @@ from blackstar_bot.device_finder import (
 
 ENV_PATH = Path(".env")
 BACKUP_PATH = Path(".env.bak")
-DEFAULT_DEVICE_QUERY = "Blackstar"
 PORTAL_URL = "https://discord.com/developers/applications"
 
 # The token is a full credential; keep it off other accounts on this machine.
 ENV_FILE_MODE = 0o600
 
 INTRO = f"""
-Blackstar bot setup
-===================
+Guitar amp bot setup
+====================
 
-This configures one bot instance for you alone: it streams the amp plugged
-into *this* machine, and only you can run its commands.
+This configures one bot instance for you alone: it streams the amp (or any
+USB audio device) plugged into *this* machine, and only you can run its
+commands.
 
 First create your own Discord application:
 
@@ -43,7 +43,7 @@ The bot logs its own invite link on startup, so you do not need it yet.
 OUTRO = """
 Done. Next steps:
 
-  1. Start the bot:  blackstar-bot
+  1. Start the bot:  guitar-amp-bot
   2. Copy the invite_url line it logs and open it to add the bot to a server.
   3. Join a voice channel and run /stream.
 """
@@ -57,7 +57,7 @@ def quote(value: str) -> str:
 
 def render_env(values: dict[str, str | None]) -> str:
     """Render .env content, writing unset optional keys as comments."""
-    lines = ["# Written by blackstar-bot-setup. Keep this file out of git."]
+    lines = ["# Written by guitar-amp-bot-setup. Keep this file out of git."]
     for key, value in values.items():
         if value is None:
             lines.append(f"# {key}=")
@@ -118,15 +118,24 @@ def _ask_token() -> str:
         _say("  A token is required.\n")
 
 
+def _ask_device_name(prompt: str) -> str:
+    while True:
+        name = _ask(prompt).strip()
+        if name:
+            return name
+        # A blank query is a substring of every device name, so it never saves.
+        _say("  A device is required.")
+
+
 def _ask_device() -> str:
     refresh_devices()
     devices = list_input_devices()
     if not devices:
         _say(
             "\nNo audio input devices detected. Plug in the amp and re-run this, "
-            f"or enter a name to match later (default: {DEFAULT_DEVICE_QUERY})."
+            "or enter a name to match later."
         )
-        return _ask(f"Device name [{DEFAULT_DEVICE_QUERY}]: ").strip() or DEFAULT_DEVICE_QUERY
+        return _ask_device_name("Device name: ")
 
     _say("\nDetected audio inputs:")
     for position, device in enumerate(devices, start=1):
@@ -134,16 +143,15 @@ def _ask_device() -> str:
         _say(f"  {position}. {device.name} ({hostapi}{device.default_samplerate:g} Hz default)")
 
     while True:
-        raw = _ask(f"\nPick a number, or type a name to match [{DEFAULT_DEVICE_QUERY}]: ").strip()
-        if raw.isdigit():
-            chosen = int(raw)
+        query = _ask_device_name("\nPick a number, or type a name to match: ")
+        if query.isdigit():
+            chosen = int(query)
             if not 1 <= chosen <= len(devices):
                 _say("  No device with that number.")
                 continue
             device = devices[chosen - 1]
             _warn_if_unusable(device)
             return device.name
-        query = raw or DEFAULT_DEVICE_QUERY
         try:
             matched = select_device(devices, query)
         except AmbiguousDeviceError as exc:

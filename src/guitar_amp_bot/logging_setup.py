@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from blackstar_bot.config import Settings
+    from guitar_amp_bot.config import Settings
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 MAX_LOG_BYTES = 1_000_000

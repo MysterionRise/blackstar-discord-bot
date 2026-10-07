@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord.voice
 import pytest
 
-import blackstar_bot.bot_sounddevice as bot_module
-from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.bot_sounddevice import on_voice_state_update, stop, stream
-from blackstar_bot.device_finder import AudioDevice
+import guitar_amp_bot.bot_sounddevice as bot_module
+from guitar_amp_bot.audio_source import DeviceAudioSource
+from guitar_amp_bot.bot_sounddevice import on_voice_state_update, stop, stream
+from guitar_amp_bot.device_finder import AudioDevice
 
 OWNER_ID = 424242424242424242
 FRIEND_ID = 111111111111111111
@@ -48,7 +48,7 @@ def _voice_client(*members):
     voice_client.channel.members = list(members)
     voice_client.is_playing.return_value = True
     voice_client.disconnect = AsyncMock()
-    voice_client.source = MagicMock(spec=BlackstarAudioSource)
+    voice_client.source = MagicMock(spec=DeviceAudioSource)
     return voice_client
 
 
@@ -208,7 +208,7 @@ async def test_stream_command_registers_the_stream_for_auto_stop(backend):
     with (
         patch.object(bot_module, "refresh_devices"),
         patch.object(bot_module, "find_device_by_name", return_value=device),
-        patch.object(bot_module, "BlackstarAudioSource", return_value=MagicMock()),
+        patch.object(bot_module, "DeviceAudioSource", return_value=MagicMock()),
         patch.object(bot_module.discord, "FFmpegPCMAudio", return_value=MagicMock()),
     ):
         await stream(ctx)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bulk-create GitHub labels for the blackstar-discord-bot repository.
+# Bulk-create GitHub labels for the discord-guitar-amp-bot repository.
 # Usage: bash scripts/create_labels.sh
 set -euo pipefail
 

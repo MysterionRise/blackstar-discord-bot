@@ -1,11 +1,11 @@
-"""Tests for blackstar_bot.startup."""
+"""Tests for guitar_amp_bot.startup."""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from blackstar_bot.startup import announce_startup, log_invite_url, resolve_owner
+from guitar_amp_bot.startup import announce_startup, log_invite_url, resolve_owner
 
 OWNER_ID = 424242424242424242
 TEAM_MEMBER_IDS = (111111111111111111, 222222222222222222)
@@ -62,7 +62,7 @@ async def test_team_owned_application_authorizes_every_member_with_a_warning(cap
     """A team-owned app is a wider grant than people expect, so it is flagged."""
     bot = _bot(app=_app(team_member_ids=TEAM_MEMBER_IDS))
 
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.startup"):
         await resolve_owner(bot, _settings())
 
     assert bot.owner_ids == set(TEAM_MEMBER_IDS)
@@ -76,7 +76,7 @@ async def test_failed_lookup_leaves_no_owner_configured(caplog):
     bot = _bot()
     bot.application_info = AsyncMock(side_effect=RuntimeError("Discord is down"))
 
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.startup"):
         await resolve_owner(bot, _settings())
 
     assert bot.owner_id is None
@@ -87,7 +87,7 @@ async def test_failed_lookup_leaves_no_owner_configured(caplog):
 async def test_missing_application_owner_is_reported(caplog):
     bot = _bot(app=_app(owner_id=None))
 
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.startup"):
         await resolve_owner(bot, _settings())
 
     assert bot.owner_id is None
@@ -96,7 +96,7 @@ async def test_missing_application_owner_is_reported(caplog):
 
 def test_invite_url_requests_only_voice_permissions(caplog):
     """The invite asks for connect+speak and nothing more."""
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.startup"):
         log_invite_url(_bot())
 
     logged = caplog.records[-1].getMessage()
@@ -109,7 +109,7 @@ def test_invite_url_is_skipped_before_login(caplog):
     bot = _bot()
     bot.user = None
 
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.startup"):
         log_invite_url(bot)
 
     assert not caplog.records
@@ -119,7 +119,7 @@ def test_invite_url_is_skipped_before_login(caplog):
 async def test_announce_startup_reports_owner_and_invite(caplog):
     bot = _bot(app=_app(owner_id=OWNER_ID))
 
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.startup"):
         await announce_startup(bot, _settings())
 
     messages = [record.getMessage() for record in caplog.records]
@@ -133,7 +133,7 @@ async def test_announce_startup_runs_once_across_reconnects(caplog):
     bot = _bot(app=_app(owner_id=OWNER_ID))
 
     await announce_startup(bot, _settings())
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.startup"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.startup"):
         await announce_startup(bot, _settings())
 
     bot.application_info.assert_awaited_once()

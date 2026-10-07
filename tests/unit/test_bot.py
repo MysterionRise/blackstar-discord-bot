@@ -1,4 +1,4 @@
-"""Tests for blackstar_bot.bot_sounddevice helpers."""
+"""Tests for guitar_amp_bot.bot_sounddevice helpers."""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-import blackstar_bot.bot_sounddevice as bot_module
-from blackstar_bot.bot_sounddevice import (
+import guitar_amp_bot.bot_sounddevice as bot_module
+from guitar_amp_bot.bot_sounddevice import (
     _connect_with_retry,
     _ffmpeg_input_args,
     _format_device_list,
@@ -15,11 +15,11 @@ from blackstar_bot.bot_sounddevice import (
     main,
     on_ready,
 )
-from blackstar_bot.device_finder import AudioDevice
+from guitar_amp_bot.device_finder import AudioDevice
 
 
 def test_ffmpeg_input_args_darwin():
-    with patch("blackstar_bot.bot_sounddevice.sys") as mock_sys:
+    with patch("guitar_amp_bot.bot_sounddevice.sys") as mock_sys:
         mock_sys.platform = "darwin"
         source, opts = _ffmpeg_input_args("MyDevice")
     assert source == ":MyDevice"
@@ -27,7 +27,7 @@ def test_ffmpeg_input_args_darwin():
 
 
 def test_ffmpeg_input_args_linux():
-    with patch("blackstar_bot.bot_sounddevice.sys") as mock_sys:
+    with patch("guitar_amp_bot.bot_sounddevice.sys") as mock_sys:
         mock_sys.platform = "linux"
         source, opts = _ffmpeg_input_args("MyDevice")
     assert source == "hw:MyDevice"
@@ -35,7 +35,7 @@ def test_ffmpeg_input_args_linux():
 
 
 def test_ffmpeg_input_args_win32():
-    with patch("blackstar_bot.bot_sounddevice.sys") as mock_sys:
+    with patch("guitar_amp_bot.bot_sounddevice.sys") as mock_sys:
         mock_sys.platform = "win32"
         source, opts = _ffmpeg_input_args("MyDevice")
     assert source == "audio=MyDevice"
@@ -45,21 +45,21 @@ def test_ffmpeg_input_args_win32():
 def test_resolve_guild_ids_scopes_commands_to_configured_guild():
     settings = MagicMock()
     settings.guild_id = 123456789012345678
-    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings):
+    with patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings):
         assert _resolve_guild_ids() == [123456789012345678]
 
 
 def test_resolve_guild_ids_returns_none_when_unset():
     settings = MagicMock()
     settings.guild_id = None
-    with patch("blackstar_bot.bot_sounddevice._get_settings", return_value=settings):
+    with patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings):
         assert _resolve_guild_ids() is None
 
 
 def test_resolve_guild_ids_tolerates_unreadable_settings():
     """Import-time evaluation must not raise when the environment is incomplete."""
     error = ValidationError.from_exception_data("Settings", [])
-    with patch("blackstar_bot.bot_sounddevice._get_settings", side_effect=error):
+    with patch("guitar_amp_bot.bot_sounddevice._get_settings", side_effect=error):
         assert _resolve_guild_ids() is None
 
 
@@ -105,7 +105,7 @@ def _logged(caplog):
 
 
 def test_main_says_commands_are_global_without_guild_id(monkeypatch, caplog):
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.bot_sounddevice"):
         _run_main(monkeypatch, guild_id=None, guild_ids=None)
 
     assert any(message.startswith("guild_scope_global") for message in _logged(caplog))
@@ -113,7 +113,7 @@ def test_main_says_commands_are_global_without_guild_id(monkeypatch, caplog):
 
 def test_main_warns_when_guild_id_was_unreadable_at_registration(monkeypatch, caplog):
     """GUILD_ID set now but not at import means commands went out globally."""
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.bot_sounddevice"):
         _run_main(monkeypatch, guild_id=GUILD_ID, guild_ids=None)
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -121,7 +121,7 @@ def test_main_warns_when_guild_id_was_unreadable_at_registration(monkeypatch, ca
 
 
 def test_main_is_quiet_about_scope_when_commands_are_guild_scoped(monkeypatch, caplog):
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.bot_sounddevice"):
         _run_main(monkeypatch, guild_id=GUILD_ID, guild_ids=[GUILD_ID])
 
     assert not any(message.startswith("guild_scope") for message in _logged(caplog))
@@ -136,7 +136,7 @@ async def test_on_ready_logs_in_and_announces_startup(monkeypatch, caplog):
     monkeypatch.setattr(bot_module, "_get_settings", lambda: settings)
     monkeypatch.setattr(bot_module, "announce_startup", announce)
 
-    with caplog.at_level(logging.INFO, logger="blackstar_bot.bot_sounddevice"):
+    with caplog.at_level(logging.INFO, logger="guitar_amp_bot.bot_sounddevice"):
         await on_ready()
 
     announce.assert_awaited_once_with(fake_bot, settings)

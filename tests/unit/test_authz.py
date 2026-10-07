@@ -1,11 +1,11 @@
-"""Tests for blackstar_bot.authz."""
+"""Tests for guitar_amp_bot.authz."""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from blackstar_bot.authz import UNAUTHORIZED_MESSAGE, is_owner, require_owner
+from guitar_amp_bot.authz import UNAUTHORIZED_MESSAGE, is_owner, require_owner
 
 OWNER_ID = 424242424242424242
 INTRUDER_ID = 999999999999999999
@@ -73,7 +73,7 @@ async def test_failed_owner_lookup_refuses_and_logs(caplog):
     ctx = _ctx(OWNER_ID)
     ctx.bot.is_owner = AsyncMock(side_effect=RuntimeError("Discord is down"))
 
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.authz"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.authz"):
         allowed = await is_owner(ctx, None)
 
     assert allowed is False
@@ -105,7 +105,7 @@ async def test_require_owner_rejects_other_user_ephemerally():
 async def test_require_owner_logs_refused_user_in_rendered_message(caplog):
     """The audit line must name the user under the default format, not only via extra."""
     ctx = _ctx(INTRUDER_ID)
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.authz"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.authz"):
         await require_owner(ctx, OWNER_ID)
 
     record = caplog.records[-1]

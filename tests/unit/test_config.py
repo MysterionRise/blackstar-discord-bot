@@ -1,11 +1,11 @@
-"""Tests for blackstar_bot.config."""
+"""Tests for guitar_amp_bot.config."""
 
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from blackstar_bot.config import Settings
+from guitar_amp_bot.config import Settings
 
 OWNER_ID = 424242424242424242
 
@@ -16,6 +16,7 @@ def isolate_env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     for key in ("DISCORD_TOKEN", "OWNER_ID", "GUILD_ID", "AUDIO_DEVICE", "LOG_FILE", "LOG_LEVEL"):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("AUDIO_DEVICE", "Blackstar")
 
 
 def test_settings_defaults(monkeypatch):
@@ -29,7 +30,7 @@ def test_settings_defaults(monkeypatch):
     assert settings.audio_device == "Blackstar"
     assert settings.audio_backend == "sounddevice"
     assert settings.debug_config is False
-    assert settings.log_file == Path("blackstar-bot.log")
+    assert settings.log_file == Path("guitar-amp-bot.log")
     assert settings.log_level == "INFO"
     assert settings.volume == 1.0
 
@@ -77,8 +78,31 @@ def test_settings_custom_log_file(monkeypatch):
     """LOG_FILE should be honoured when set."""
     monkeypatch.setenv("DISCORD_TOKEN", "my-token")
     monkeypatch.setenv("OWNER_ID", str(OWNER_ID))
-    monkeypatch.setenv("LOG_FILE", "/tmp/blackstar.log")
-    assert Settings().log_file == Path("/tmp/blackstar.log")
+    monkeypatch.setenv("LOG_FILE", "/tmp/amp.log")
+    assert Settings().log_file == Path("/tmp/amp.log")
+
+
+def test_settings_require_audio_device(monkeypatch):
+    """No default device: a generic guess could capture the wrong input."""
+    monkeypatch.setenv("DISCORD_TOKEN", "my-token")
+    monkeypatch.delenv("AUDIO_DEVICE")
+    with pytest.raises(ValidationError, match="audio_device"):
+        Settings()
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_settings_reject_blank_audio_device(monkeypatch, raw):
+    """A blank query is a substring of every device name, so it must not load."""
+    monkeypatch.setenv("DISCORD_TOKEN", "my-token")
+    monkeypatch.setenv("AUDIO_DEVICE", raw)
+    with pytest.raises(ValidationError, match="audio_device"):
+        Settings()
+
+
+def test_settings_strip_audio_device(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "my-token")
+    monkeypatch.setenv("AUDIO_DEVICE", "  Katana  ")
+    assert Settings().audio_device == "Katana"
 
 
 @pytest.mark.parametrize("raw", ["debug", " Debug ", "DEBUG"])

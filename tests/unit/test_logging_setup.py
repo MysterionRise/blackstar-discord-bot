@@ -1,4 +1,4 @@
-"""Tests for blackstar_bot.logging_setup."""
+"""Tests for guitar_amp_bot.logging_setup."""
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from blackstar_bot.logging_setup import (
+from guitar_amp_bot.logging_setup import (
     LOG_BACKUP_COUNT,
     LOG_FORMAT,
     MAX_LOG_BYTES,
@@ -60,7 +60,7 @@ def test_configure_logging_writes_audit_lines_to_file(tmp_path):
     log_file = tmp_path / "bot.log"
     configure_logging(_settings(log_file))
 
-    logging.getLogger("blackstar_bot.authz").warning("unauthorized_command user_id=%s", 42)
+    logging.getLogger("guitar_amp_bot.authz").warning("unauthorized_command user_id=%s", 42)
 
     assert "unauthorized_command user_id=42" in log_file.read_text()
 
@@ -69,7 +69,7 @@ def test_configure_logging_creates_missing_parent_directory(tmp_path):
     log_file = tmp_path / "nested" / "dir" / "bot.log"
     configure_logging(_settings(log_file))
 
-    logging.getLogger("blackstar_bot.authz").warning("hello")
+    logging.getLogger("guitar_amp_bot.authz").warning("hello")
 
     assert log_file.exists()
 
@@ -83,7 +83,7 @@ def test_configure_logging_skips_file_handler_when_unset():
 
 
 def _record(msg="stream_config", exc_info=None, **extra):
-    record = logging.LogRecord("blackstar_bot.test", logging.INFO, __file__, 1, msg, (), exc_info)
+    record = logging.LogRecord("guitar_amp_bot.test", logging.INFO, __file__, 1, msg, (), exc_info)
     for key, value in extra.items():
         setattr(record, key, value)
     return record
@@ -143,7 +143,7 @@ def test_file_handler_writes_extra_fields(tmp_path):
     log_file = tmp_path / "bot.log"
     configure_logging(_settings(log_file))
 
-    logging.getLogger("blackstar_bot.bot_sounddevice").warning(
+    logging.getLogger("guitar_amp_bot.bot_sounddevice").warning(
         "voice_connect_failed", extra={"channel": "General", "attempt": 2}
     )
 

@@ -20,14 +20,24 @@ class Settings(BaseSettings):
     # application, which is who created the token in the first place.
     owner_id: int | None = Field(default=None, gt=0)
     guild_id: int | None = Field(default=None, gt=0)
-    audio_device: str = "Blackstar"
+    # Required, with no default: a generic default ("USB", say) could match the
+    # wrong input, and only audio from the chosen device may ever be streamed.
+    audio_device: str = Field(min_length=1)
     audio_backend: AudioBackend = "sounddevice"
     debug_config: bool = False
-    log_file: Path | None = Path("blackstar-bot.log")
+    log_file: Path | None = Path("guitar-amp-bot.log")
     log_level: LogLevel = "INFO"
     volume: float = Field(default=1.0, ge=0.0, le=5.0)
 
     model_config = SettingsConfigDict(env_file=".env")
+
+    @field_validator("audio_device", mode="before")
+    @classmethod
+    def _strip_audio_device(cls: type[Settings], value: object) -> object:
+        """Reject a blank ``AUDIO_DEVICE``: as a substring it would match every input."""
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("log_file", mode="before")
     @classmethod

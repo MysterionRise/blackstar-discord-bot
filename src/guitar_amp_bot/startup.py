@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import discord
 
 if TYPE_CHECKING:
-    from blackstar_bot.config import Settings
+    from guitar_amp_bot.config import Settings
 
 logger = logging.getLogger(__name__)
 

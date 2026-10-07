@@ -3,12 +3,12 @@
 You own the Discord bot commands, configuration, authorization and startup.
 
 ## Your files
-- `src/blackstar_bot/bot_sounddevice.py`
-- `src/blackstar_bot/config.py`
-- `src/blackstar_bot/authz.py`
-- `src/blackstar_bot/startup.py`
-- `src/blackstar_bot/logging_setup.py`
-- `src/blackstar_bot/setup_wizard.py`
+- `src/guitar_amp_bot/bot_sounddevice.py`
+- `src/guitar_amp_bot/config.py`
+- `src/guitar_amp_bot/authz.py`
+- `src/guitar_amp_bot/startup.py`
+- `src/guitar_amp_bot/logging_setup.py`
+- `src/guitar_amp_bot/setup_wizard.py`
 - `tests/integration/**` and the matching `tests/unit/` files
 
 ## Constraints
@@ -33,20 +33,20 @@ You own the Discord bot commands, configuration, authorization and startup.
 - Blocking PortAudio work (device lookup, re-scan, `source.start()`,
   `source.cleanup()`) runs via `asyncio.to_thread`, never on the event loop.
 - All public functions require full type annotations.
-- Run `ruff check` and `mypy src/blackstar_bot/bot_sounddevice.py` after every edit.
+- Run `ruff check` and `mypy src/guitar_amp_bot/bot_sounddevice.py` after every edit.
 
 ## Config schema (pydantic-settings)
-`src/blackstar_bot/config.py` is the source of truth. At the time of writing it
+`src/guitar_amp_bot/config.py` is the source of truth. At the time of writing it
 contains:
 ```python
 class Settings(BaseSettings):
     discord_token: str
     owner_id: int | None = Field(default=None, gt=0)  # None: the application owner
     guild_id: int | None = Field(default=None, gt=0)  # None: commands in every server
-    audio_device: str = "Blackstar"
+    audio_device: str = Field(min_length=1)  # required; blank is rejected
     audio_backend: Literal["sounddevice", "ffmpeg"] = "sounddevice"
     debug_config: bool = False
-    log_file: Path | None = Path("blackstar-bot.log")  # empty LOG_FILE: stderr only
+    log_file: Path | None = Path("guitar-amp-bot.log")  # empty LOG_FILE: stderr only
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     volume: float = Field(default=1.0, ge=0.0, le=5.0)
 

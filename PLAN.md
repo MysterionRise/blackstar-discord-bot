@@ -1,12 +1,12 @@
-# Blackstar Discord Bot — Engineering Plan
+# Discord Guitar Amp Bot — Engineering Plan
 
 > **Scope**: Claude Code agentic team topology, code quality toolchain
 > (Ruff, mypy, pre-commit), GitHub Actions CI, and GitHub repository definition.
 
 ## Architecture
 
-The bot captures audio from a Blackstar USB amplifier and streams it into a
-Discord voice channel. Each user runs their own instance on the machine the amp
+The bot captures audio from a USB amplifier, modeller or audio interface and
+streams it into a Discord voice channel. Each user runs their own instance on the machine the amp
 is plugged into, and only that instance's owner can run its commands. One bot
 (`bot_sounddevice.py`) supports two capture backends, chosen with `AUDIO_BACKEND`:
 
@@ -18,18 +18,18 @@ is plugged into, and only that instance's owner can run its commands. One bot
 | Module | Responsibility |
 |---|---|
 | `bot_sounddevice.py` | Slash commands, the one-stream registry, auto-stop, voice connect retry, `main()` |
-| `audio_source.py` | `BlackstarAudioSource`: capture buffer, identity check, device watchdog |
+| `audio_source.py` | `DeviceAudioSource`: capture buffer, identity check, device watchdog |
 | `device_finder.py` | Device discovery and selection, the capture-format check, the PortAudio lock and refresh |
 | `authz.py` | Owner-only authorization for every command |
 | `startup.py` | Resolves the owner from the Discord application, logs the invite URL |
 | `config.py` | `Settings` (pydantic-settings) from the environment and `.env` |
 | `logging_setup.py` | stderr and rotating-file logging with `key=value` extras |
-| `setup_wizard.py` | `blackstar-bot-setup`, which writes `.env` |
+| `setup_wizard.py` | `guitar-amp-bot-setup`, which writes `.env` |
 
 ## Audio Pipeline
 
 ```
-Blackstar USB amp → OS audio stack (Core Audio / ALSA / WASAPI)
+USB amp / interface → OS audio stack (Core Audio / ALSA / WASAPI)
   → PortAudio (sounddevice) or FFmpeg → PCM 48 kHz 16-bit stereo → Discord Opus
 ```
 

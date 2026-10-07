@@ -1,12 +1,12 @@
-"""Tests for blackstar_bot.setup_wizard."""
+"""Tests for guitar_amp_bot.setup_wizard."""
 
 import stat
 
 import pytest
 
-from blackstar_bot import setup_wizard
-from blackstar_bot.device_finder import AudioDevice
-from blackstar_bot.setup_wizard import parse_optional_id, quote, render_env, write_env
+from guitar_amp_bot import setup_wizard
+from guitar_amp_bot.device_finder import AudioDevice
+from guitar_amp_bot.setup_wizard import parse_optional_id, quote, render_env, write_env
 
 TOKEN = "fake-token"
 
@@ -88,7 +88,7 @@ def test_write_env_is_readable_only_by_its_owner(tmp_path):
 
 def test_main_writes_a_usable_env_with_optional_ids_unset(wizard, tmp_path):
     """Blank answers mean auto-detected owner and every server."""
-    wizard(["", "", ""])
+    wizard(["", "", "2"])
 
     setup_wizard.main()
 
@@ -96,8 +96,26 @@ def test_main_writes_a_usable_env_with_optional_ids_unset(wizard, tmp_path):
     assert f'DISCORD_TOKEN="{TOKEN}"' in written
     assert "# OWNER_ID=" in written
     assert "# GUILD_ID=" in written
-    assert 'AUDIO_DEVICE="Blackstar"' in written
+    assert 'AUDIO_DEVICE="Blackstar ID:Core V4"' in written
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
+
+
+def test_main_reprompts_for_a_blank_device(wizard, tmp_path):
+    """There is no default device: a blank query would match every input."""
+    wizard(["", "", "", "  ", "Blackstar"])
+
+    setup_wizard.main()
+
+    assert 'AUDIO_DEVICE="Blackstar"' in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_main_asks_for_a_name_when_no_device_is_plugged_in(wizard, monkeypatch, tmp_path):
+    monkeypatch.setattr(setup_wizard, "list_input_devices", list)
+    wizard(["", "", "", "Katana"])
+
+    setup_wizard.main()
+
+    assert 'AUDIO_DEVICE="Katana"' in (tmp_path / ".env").read_text(encoding="utf-8")
 
 
 def test_main_records_explicit_ids_and_a_picked_device(wizard, tmp_path):
@@ -125,7 +143,7 @@ def test_main_leaves_an_existing_env_alone_when_declined(wizard, tmp_path):
 
 
 def test_main_backs_up_the_previous_env_before_replacing_it(wizard, tmp_path):
-    wizard(["y", "", "", ""])
+    wizard(["y", "", "", "2"])
 
     (tmp_path / ".env").write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
     setup_wizard.main()
@@ -136,7 +154,7 @@ def test_main_backs_up_the_previous_env_before_replacing_it(wizard, tmp_path):
 
 def test_main_reprompts_after_an_invalid_id(wizard, tmp_path):
     """A typo must not abort the wizard."""
-    wizard(["oops", "424242424242424242", "", ""])
+    wizard(["oops", "424242424242424242", "", "2"])
 
     setup_wizard.main()
 
@@ -160,7 +178,7 @@ def test_main_backup_is_readable_only_by_its_owner(wizard, tmp_path):
     env = tmp_path / ".env"
     env.write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
     env.chmod(0o644)
-    wizard(["y", "", "", ""])
+    wizard(["y", "", "", "2"])
 
     setup_wizard.main()
 

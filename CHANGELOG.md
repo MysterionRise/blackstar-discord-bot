@@ -110,6 +110,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** the project is renamed from `blackstar-discord-bot` to
+  `discord-guitar-amp-bot`, because it streams any USB amp, modeller or audio
+  interface, not only Blackstar amps. The package is now `guitar_amp_bot`, the
+  commands are `guitar-amp-bot` and `guitar-amp-bot-setup`, the default log file
+  is `guitar-amp-bot.log`, and `BlackstarAudioSource` is `DeviceAudioSource`.
+  `blackstar-bot`, `blackstar-bot-sd` and `blackstar-bot-setup` remain as
+  aliases. To migrate an existing checkout: `pip uninstall blackstar-discord-bot`
+  then `pip install -e .`; `.env` needs no changes
+- **Breaking:** `AUDIO_DEVICE` is required and has no default (it was
+  `Blackstar`), and a blank value is rejected: a guessed or empty query could
+  match the wrong input. The setup wizard always writes it, and no longer
+  accepts a blank answer for the device
+- README leads with what the bot is for and why a bot beats using the amp as a
+  Discord microphone, lists verified and expected hardware, documents the macOS
+  microphone permission, and credits similar projects
 - README, `PLAN.md`, `AGENTS.md` and the `.claude/agents` prompts describe the
   current code. Changes:
   - a per-platform requirements table

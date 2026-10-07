@@ -12,4 +12,4 @@
 - [ ] `pre-commit run --all-files` passes locally
 - [ ] New code has type annotations
 - [ ] Updated CHANGELOG.md (if applicable)
-- [ ] Tested with physical Blackstar amp connected
+- [ ] Tested with physical hardware connected (model: )

@@ -1,10 +1,31 @@
-# Blackstar Discord Bot
+# Discord Guitar Amp Bot
 
-Python bot that streams guitar audio from a Blackstar USB amp into a Discord voice channel.
+Python bot that streams your amp into a Discord voice channel: plug a USB amp,
+modeller or audio interface into your computer, run `/stream`, and the bot
+joins your voice channel and plays it, in stereo, as its own participant.
+
+It was built for (and verified with) a Blackstar ID:Core, but it works with
+anything your computer sees as an audio input: other USB amps and modellers
+(Boss Katana, Line 6, Positive Grid Spark, Fender Mustang and the like), any
+USB audio interface, and keyboards, synths or drum machines with USB audio.
+
+Why a bot, rather than picking the amp as your Discord microphone:
+
+- Discord's microphone path is tuned for speech. Noise suppression, echo
+  cancellation, automatic gain and voice-activity gating cut off or colour
+  sustained notes; the bot's stream skips all of it.
+- You keep talking on your normal mic while the amp plays separately, and
+  listeners get their own volume slider for it.
+- It is stereo, and it never falls back to broadcasting the room: see
+  [Capture device safety](#capture-device-safety).
+
+Discord adds a few hundred milliseconds of delay, so this is for playing *for*
+people (showing a tone, lessons, a music community) rather than playing in
+time *with* them; tools such as Jamulus or SonoBus cover that.
 
 ## Features
 
-- Stream live guitar audio from a Blackstar amplifier into Discord voice chat
+- Stream live audio from a USB amp or audio interface into Discord voice chat
 - Two capture backends in one bot: sounddevice (default) and FFmpeg (`AUDIO_BACKEND=ffmpeg`)
 - Automatic USB audio device discovery
 - Configurable backend, device, and volume control
@@ -16,19 +37,27 @@ Python bot that streams guitar audio from a Blackstar USB amp into a Discord voi
 - py-cord 2.8+ (earlier versions cannot connect to voice: Discord has
   enforced the DAVE end-to-end-encryption protocol since 2 March 2026 and
   closes voice websockets from older clients with code 4017)
-- A Blackstar amplifier with USB audio output, plugged into the machine that
-  runs the bot
+- An amp, modeller or audio interface with USB audio output, plugged into the
+  machine that runs the bot
 - PortAudio, for the default sounddevice backend
 - FFmpeg, only for the optional FFmpeg backend
 
 | Platform | Status | Audio dependencies |
 |---|---|---|
-| macOS | Verified with a real amp | `brew install portaudio ffmpeg` |
+| macOS | Verified with a real amp (Blackstar ID:Core V4); the primary platform | `brew install portaudio ffmpeg` |
 | Linux | Expected to work (ALSA); not yet verified with an amp | `sudo apt install libportaudio2 ffmpeg` |
 | Windows | Expected to work (WASAPI); not yet verified with an amp | None: the sounddevice wheel bundles PortAudio. FFmpeg on `PATH` only for the FFmpeg backend |
 
 The sounddevice backend is the same code on every platform. Only its device
 naming and the FFmpeg backend's input format differ per platform.
+
+| Hardware | Status |
+|---|---|
+| Blackstar ID:Core V4 | Verified on macOS |
+| Other USB amps and modellers, USB audio interfaces, keyboards and synths | Expected to work if they offer a stereo input that opens at 48 kHz; please report results in an issue |
+
+On macOS, the app the bot runs from (Terminal, iTerm, …) needs microphone
+access: see [macOS microphone permission](#macos-microphone-permission).
 
 ## Run your own instance
 
@@ -44,8 +73,8 @@ cd blackstar-discord-bot
 python3.12 -m venv venv && source venv/bin/activate
 pip install -e .
 
-blackstar-bot-setup      # asks for your token and picks the audio device
-blackstar-bot            # start the bot
+guitar-amp-bot-setup     # asks for your token and picks the audio device
+guitar-amp-bot           # start the bot
 ```
 
 The wizard prints how to create the application. Two settings there matter:
@@ -80,12 +109,12 @@ pre-commit install --hook-type commit-msg
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your DISCORD_TOKEN. OWNER_ID and GUILD_ID are optional.
+# Edit .env: set DISCORD_TOKEN and AUDIO_DEVICE. OWNER_ID and GUILD_ID are optional.
 # AUDIO_BACKEND defaults to sounddevice; set it to ffmpeg only as a fallback.
 ```
 
-`DISCORD_TOKEN` is the only required setting. `OWNER_ID` and `GUILD_ID` shape
-access control — see [Access control](#access-control) below.
+`DISCORD_TOKEN` and `AUDIO_DEVICE` are the only required settings. `OWNER_ID`
+and `GUILD_ID` shape access control — see [Access control](#access-control) below.
 
 ### Settings
 
@@ -97,30 +126,30 @@ is started from.
 | `DISCORD_TOKEN` | required | Bot token from the Discord Developer Portal |
 | `OWNER_ID` | owner of the application | The one Discord user ID allowed to run commands |
 | `GUILD_ID` | unset (every server) | Register commands in this one server only |
-| `AUDIO_DEVICE` | `Blackstar` | Capture device; see [Choosing the device](#choosing-the-device) |
+| `AUDIO_DEVICE` | required | Capture device; see [Choosing the device](#choosing-the-device). The wizard fills it in |
 | `AUDIO_BACKEND` | `sounddevice` | `sounddevice`, or `ffmpeg` as a fallback |
 | `VOLUME` | `1.0` | Playback volume multiplier, `0.0` to `5.0`. `/volume` overrides it until the bot restarts |
 | `DEBUG_CONFIG` | `false` | Log the backend, device and volume when a stream starts (never the token) |
-| `LOG_FILE` | `blackstar-bot.log` | Rotating log file; empty means stderr only |
+| `LOG_FILE` | `guitar-amp-bot.log` | Rotating log file; empty means stderr only |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ### Console commands
 
 | Command | Does |
 |---|---|
-| `blackstar-bot` | Run the bot (same as `python -m blackstar_bot.bot_sounddevice`) |
-| `blackstar-bot-sd` | Alias of `blackstar-bot`, kept for existing setups |
-| `blackstar-bot-setup` | Interactive wizard that writes `.env` |
+| `guitar-amp-bot` | Run the bot (same as `python -m guitar_amp_bot.bot_sounddevice`) |
+| `guitar-amp-bot-setup` | Interactive wizard that writes `.env` |
+| `blackstar-bot`, `blackstar-bot-sd`, `blackstar-bot-setup` | Names from before the rename, kept for existing setups |
 | `python scripts/list_devices.py` | List the audio inputs PortAudio can see |
 
 ## Usage
 
 ```bash
-# Check that your Blackstar amp is detected
+# Check that your amp is detected
 python scripts/list_devices.py
 
 # Run the bot (sounddevice by default, FFmpeg fallback via AUDIO_BACKEND)
-blackstar-bot
+guitar-amp-bot
 ```
 
 In Discord, use:
@@ -210,7 +239,7 @@ the default, is the supported path.
 
 Refused commands are logged as `unauthorized_command user_id=... command=...`,
 naming the Discord user who was turned away. Logging goes to stderr and to a
-rotating file at `LOG_FILE` (default `blackstar-bot.log`, 1 MB per file, 3
+rotating file at `LOG_FILE` (default `guitar-amp-bot.log`, 1 MB per file, 3
 backups). Set `LOG_FILE=` to an empty value to log to stderr only. A configured
 path that cannot be opened stops startup rather than silently dropping the audit
 trail.
@@ -226,7 +255,7 @@ reach host USB audio, so the amp is invisible from inside a container there. On
 a Mac, install natively as above. On a Linux host, ALSA can be passed through:
 
 ```bash
-blackstar-bot-setup        # or write .env by hand
+guitar-amp-bot-setup       # or write .env by hand
 docker compose up --build  # logs go to stderr: docker compose logs -f
 ```
 
@@ -267,7 +296,7 @@ GitHub Release notes, and fails if the tag and `pyproject.toml` disagree.
 ## Project Structure
 
 ```
-src/blackstar_bot/
+src/guitar_amp_bot/
   __init__.py          # Package init
   bot_sounddevice.py   # The bot: slash commands, sounddevice or FFmpeg capture
   audio_source.py      # Custom AudioSource for sounddevice capture
@@ -276,7 +305,7 @@ src/blackstar_bot/
   logging_setup.py     # stderr + rotating file logging
   config.py            # Pydantic-based settings from .env
   startup.py           # Owner resolution + invite link logging
-  setup_wizard.py      # Interactive .env setup (blackstar-bot-setup)
+  setup_wizard.py      # Interactive .env setup (guitar-amp-bot-setup)
 tests/
   unit/                # Unit tests (mocked hardware)
   integration/         # Integration tests (mocked Discord client)
@@ -290,9 +319,13 @@ scripts/
 
 ### Choosing the device
 
+There is no default device: `guitar-amp-bot-setup` lists your inputs and writes
+the one you pick, and the bot refuses to start without `AUDIO_DEVICE` rather
+than guess.
+
 With the sounddevice backend, `AUDIO_DEVICE` matches device names case-insensitively. An exact name wins;
-otherwise it is a substring match, so `Blackstar` should match typical Blackstar
-USB devices. If it matches several different inputs, `/stream` refuses and lists
+otherwise it is a substring match, so `Blackstar` matches a Blackstar ID:Core
+and `Katana` a Boss Katana. If it matches several different inputs, `/stream` refuses and lists
 them, and `AUDIO_DEVICE` should be set to one of those exact names. When the same
 device appears under several host APIs (Windows lists each input under MME,
 DirectSound and WASAPI), the native API is preferred: WASAPI, Core Audio or ALSA
@@ -317,6 +350,32 @@ the exact name FFmpeg uses on that platform, which may differ from what
 Set `DEBUG_CONFIG=true` to log the selected backend, device, and volume without
 printing the Discord token. The Linux and Windows FFmpeg paths are best-effort
 and should be verified on real hardware before relying on them.
+
+### macOS microphone permission
+
+macOS asks before any app records an audio input, including a USB amp. The
+permission belongs to the app the bot runs in (Terminal, iTerm, VS Code, …), not
+to the bot: allow it under System Settings → Privacy & Security → Microphone,
+then restart that app. Without it, macOS hands the bot silence rather than an
+error, so a stream that starts but stays silent usually means this permission
+is missing.
+
+## Similar projects
+
+Streaming a local audio input into Discord through a bot is not a new idea.
+These projects are worth a look, depending on what you need:
+
+- [discord-audio-pipe](https://github.com/QiCuiHub/discord-audio-pipe): pipes any
+  input (mic, stereo mix, virtual cable) to a bot, with a GUI and a ready-made
+  Windows `.exe`. Pick it for a point-and-click setup on Windows.
+- [discord-mic-bot](https://github.com/m13253/discord-mic-bot): stereo mic bot for
+  karaoke or an instrument, with a loudness meter.
+- [AudioWarp](https://github.com/cptpiepmatz/AudioWarp): Windows bot for an
+  instrument or mixer input, built on discord.js.
+
+This bot's angle is a USB amp on a Mac first: it is driven from Discord itself
+(`/stream` joins your channel, and only you can run it), and it never streams
+anything but the configured device, even when the amp is unplugged mid-stream.
 
 ## License
 

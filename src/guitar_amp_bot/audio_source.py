@@ -14,7 +14,7 @@ import discord
 import numpy as np
 import sounddevice as sd
 
-from blackstar_bot.device_finder import (
+from guitar_amp_bot.device_finder import (
     CHANNELS,
     SAMPLE_DTYPE,
     SAMPLE_RATE,
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from blackstar_bot.device_finder import AudioDevice
+    from guitar_amp_bot.device_finder import AudioDevice
 
 # Discord expects 48kHz, 16-bit stereo, 20ms frames → 3840 bytes per read().
 # The format itself (SAMPLE_RATE, CHANNELS) lives in device_finder, which checks
@@ -65,8 +65,8 @@ class DeviceIdentityError(RuntimeError):
     """Raised when an opened stream is not the configured capture device."""
 
 
-class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignore]
-    """Captures PCM audio from a Blackstar USB amp via sounddevice.
+class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignore]
+    """Captures PCM audio from a USB amp or audio interface via sounddevice.
 
     Only audio positively attributed to the configured device is ever emitted.
     When the device disappears, capture is torn down and ``read`` returns
@@ -295,7 +295,7 @@ class BlackstarAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ig
         self._shutdown.clear()
         thread = threading.Thread(
             target=self._watchdog_loop,
-            name="blackstar-device-watchdog",
+            name="guitar-amp-bot-device-watchdog",
             daemon=True,
         )
         self._watchdog = thread

@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-This is a Python 3.12 Discord voice bot packaged from `src/blackstar_bot/`.
+This is a Python 3.12 Discord voice bot packaged from `src/guitar_amp_bot/`.
 Core modules live there: `bot_sounddevice.py` is the bot, capturing via
 sounddevice or FFmpeg (`AUDIO_BACKEND`), `audio_source.py` handles live capture,
 `device_finder.py` discovers and selects audio devices, and `config.py` loads settings.
 `authz.py` restricts every command to the owner, `startup.py` resolves that owner
 and logs the invite link, `logging_setup.py` configures logging, and
-`setup_wizard.py` is `blackstar-bot-setup`. `PLAN.md` describes the architecture
+`setup_wizard.py` is `guitar-amp-bot-setup`. `PLAN.md` describes the architecture
 and the device-safety rules.
 Tests are under `tests/`, split into `tests/unit/` for mocked component tests and
 `tests/integration/` for higher-level bot command behavior. Utility scripts live
@@ -17,8 +17,8 @@ in `scripts/`, including `scripts/list_devices.py` for local audio-device checks
 ## Build, Test, and Development Commands
 
 - `pip install -e ".[dev]"`: install the package and development tooling.
-- `blackstar-bot` (or `python -m blackstar_bot.bot_sounddevice`): run the bot.
-- `blackstar-bot-setup`: interactively write `.env`.
+- `guitar-amp-bot` (or `python -m guitar_amp_bot.bot_sounddevice`): run the bot.
+- `guitar-amp-bot-setup`: interactively write `.env`.
 - `python scripts/list_devices.py`: list available audio input devices.
 - `pytest`: run the test suite with coverage reporting.
 - `ruff check src/ tests/`: lint Python code.
@@ -31,7 +31,7 @@ in `scripts/`, including `scripts/list_devices.py` for local audio-device checks
 ## Coding Style & Naming Conventions
 
 Use Ruff formatting with 100-character lines, spaces for indentation, and double
-quotes. Keep imports sorted by Ruff/isort, with `blackstar_bot` treated as first
+quotes. Keep imports sorted by Ruff/isort, with `guitar_amp_bot` treated as first
 party. Production code should be fully typed; mypy runs in strict mode for `src`.
 Use `snake_case` for modules, functions, and variables, and `PascalCase` for
 classes. Avoid bare `print()` in source code; use logging or Discord responses as
@@ -40,7 +40,7 @@ appropriate.
 ## Testing Guidelines
 
 Pytest is configured in `pyproject.toml` with `asyncio_mode = "auto"` and a
-minimum coverage threshold of 70% for `src/blackstar_bot`. Name tests as
+minimum coverage threshold of 70% for `src/guitar_amp_bot`. Name tests as
 `test_*.py` and keep hardware, Discord, and audio APIs mocked unless a manual
 hardware check is explicitly required. Synchronise on events or awaited tasks
 rather than sleeping, and keep the developer's `.env` out of the suite (see
@@ -54,7 +54,7 @@ Commit messages are checked by Commitizen, so prefer conventional forms such as
 history also contains Dependabot-style `Bump ...` commits. Pull requests should
 include a short summary, change type, passing `pre-commit run --all-files`, type
 annotations for new code, relevant `CHANGELOG.md` updates, and notes on whether
-the change was tested with a physical Blackstar amp.
+the change was tested with a physical amp or audio interface, and which one.
 
 ## Security & Configuration Tips
 

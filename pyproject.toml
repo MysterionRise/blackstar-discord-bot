@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "blackstar-discord-bot"
+name = "discord-guitar-amp-bot"
 version = "0.1.0"
-description = "Streams Blackstar amp audio into Discord voice channels"
+description = "Streams a USB guitar amp or audio interface into Discord voice channels"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -18,13 +18,15 @@ dependencies = [
 ]
 
 [project.scripts]
-blackstar-bot = "blackstar_bot.bot_sounddevice:main"
-# Kept as an alias of blackstar-bot for existing setups.
-blackstar-bot-sd = "blackstar_bot.bot_sounddevice:main"
-blackstar-bot-setup = "blackstar_bot.setup_wizard:main"
+guitar-amp-bot = "guitar_amp_bot.bot_sounddevice:main"
+guitar-amp-bot-setup = "guitar_amp_bot.setup_wizard:main"
+# Names from before the project was renamed, kept for existing setups.
+blackstar-bot = "guitar_amp_bot.bot_sounddevice:main"
+blackstar-bot-sd = "guitar_amp_bot.bot_sounddevice:main"
+blackstar-bot-setup = "guitar_amp_bot.setup_wizard:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/blackstar_bot"]
+packages = ["src/guitar_amp_bot"]
 
 [project.optional-dependencies]
 dev = [
@@ -84,7 +86,7 @@ ignore = [
 "tests/**/*.py" = ["S", "ANN", "T20"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["blackstar_bot"]
+known-first-party = ["guitar_amp_bot"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -108,7 +110,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Bot modules interact heavily with untyped py-cord API
-module = ["blackstar_bot.bot_sounddevice"]
+module = ["guitar_amp_bot.bot_sounddevice"]
 disallow_untyped_decorators = false
 disallow_untyped_calls = false
 warn_return_any = false
@@ -119,7 +121,7 @@ warn_return_any = false
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = [
-  "--cov=src/blackstar_bot",
+  "--cov=src/guitar_amp_bot",
   "--cov-report=term-missing",
   "--cov-report=xml:coverage.xml",
   "--cov-fail-under=70",

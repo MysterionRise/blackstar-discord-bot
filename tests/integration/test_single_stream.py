@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import blackstar_bot.bot_sounddevice as bot_module
-from blackstar_bot.audio_source import BlackstarAudioSource
-from blackstar_bot.bot_sounddevice import status, stop, stream, volume
+import guitar_amp_bot.bot_sounddevice as bot_module
+from guitar_amp_bot.audio_source import DeviceAudioSource
+from guitar_amp_bot.bot_sounddevice import status, stop, stream, volume
 
 OWNER_ID = 424242424242424242
 STREAM_GUILD_ID = 123456789012345678
@@ -44,7 +44,7 @@ def _streaming_voice_client():
     voice_client.channel.members = [owner]
     voice_client.is_playing.return_value = True
     voice_client.disconnect = AsyncMock()
-    source = MagicMock(spec=BlackstarAudioSource)
+    source = MagicMock(spec=DeviceAudioSource)
     source.state = "running"
     source.device_name = "Blackstar ID:Core V4"
     source.volume = 1.0

@@ -1,4 +1,4 @@
-"""Tests for blackstar_bot.audio_source."""
+"""Tests for guitar_amp_bot.audio_source."""
 
 import logging
 import struct
@@ -8,18 +8,18 @@ import time
 import numpy as np
 import pytest
 
-from blackstar_bot import audio_source, device_finder
-from blackstar_bot.audio_source import (
+from guitar_amp_bot import audio_source, device_finder
+from guitar_amp_bot.audio_source import (
     BYTES_PER_FRAME,
     MAX_BUFFER_FRAMES,
     OVERRUN_LOG_INTERVAL_SECONDS,
     SILENCE,
     STARVATION_SECONDS,
     TARGET_BUFFER_FRAMES,
-    BlackstarAudioSource,
+    DeviceAudioSource,
     DeviceIdentityError,
 )
-from blackstar_bot.device_finder import AmbiguousDeviceError, AudioDevice
+from guitar_amp_bot.device_finder import AmbiguousDeviceError, AudioDevice
 
 BLACKSTAR_NAME = "Blackstar ID:Core V4"
 OTHER_DEVICE_NAME = "MacBook Pro Microphone"
@@ -116,7 +116,7 @@ def _running(source):
 
 def test_read_returns_correct_size(device_48k):
     """read() should return exactly BYTES_PER_FRAME bytes."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     # Manually put data into the buffer
     frame = b"\x00" * BYTES_PER_FRAME
     source._buffer.put_nowait(frame)
@@ -126,7 +126,7 @@ def test_read_returns_correct_size(device_48k):
 
 def test_read_returns_silence_on_underrun(device_48k):
     """read() should return silence bytes when the buffer is empty."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     result = source.read()
     assert result == SILENCE
     assert len(result) == BYTES_PER_FRAME
@@ -134,13 +134,13 @@ def test_read_returns_silence_on_underrun(device_48k):
 
 def test_is_opus_returns_false(device_48k):
     """is_opus() must always return False."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     assert source.is_opus() is False
 
 
 def test_cleanup_is_idempotent(device_48k):
     """cleanup() should be safe to call multiple times."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     source.cleanup()
     source.cleanup()  # Should not raise
 
@@ -148,7 +148,7 @@ def test_cleanup_is_idempotent(device_48k):
 def test_start_rejects_a_device_that_cannot_capture_48k(device_44k, fake_streams, monkeypatch):
     """start() raises ValueError, without opening anything, if PortAudio refuses the format."""
     _cannot_capture(monkeypatch)
-    source = BlackstarAudioSource(device_44k)
+    source = DeviceAudioSource(device_44k)
 
     with pytest.raises(ValueError, match="48000"):
         source.start()
@@ -158,7 +158,7 @@ def test_start_rejects_a_device_that_cannot_capture_48k(device_44k, fake_streams
 
 def test_read_applies_volume_scaling(device_48k):
     """read() at volume=0.5 should halve sample amplitudes."""
-    source = _running(BlackstarAudioSource(device_48k, volume=0.5))
+    source = _running(DeviceAudioSource(device_48k, volume=0.5))
     # Create a frame of 0x7FFF (32767) samples — max positive int16
     num_samples = BYTES_PER_FRAME // 2  # 2 bytes per int16 sample
     frame = struct.pack(f"<{num_samples}h", *([0x7FFF] * num_samples))
@@ -172,7 +172,7 @@ def test_read_applies_volume_scaling(device_48k):
 
 def test_read_skips_scaling_at_unity_volume(device_48k):
     """read() at volume=1.0 should return bytes identical to input."""
-    source = _running(BlackstarAudioSource(device_48k, volume=1.0))
+    source = _running(DeviceAudioSource(device_48k, volume=1.0))
     num_samples = BYTES_PER_FRAME // 2
     frame = struct.pack(f"<{num_samples}h", *([12345] * num_samples))
     source._buffer.put_nowait(frame)
@@ -182,7 +182,7 @@ def test_read_skips_scaling_at_unity_volume(device_48k):
 
 def test_audio_callback_logs_on_overrun(device_48k, caplog):
     """_audio_callback should log a WARNING when the buffer is full."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     frame = b"\x00" * BYTES_PER_FRAME
     for _ in range(MAX_BUFFER_FRAMES):
         source._buffer.put_nowait(frame)
@@ -190,7 +190,7 @@ def test_audio_callback_logs_on_overrun(device_48k, caplog):
 
     # Trigger callback with new data — should cause overrun
     indata = np.zeros((960, 2), dtype=np.int16)
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.audio_source"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.audio_source"):
         source._audio_callback(indata, 960, None, None)
 
     assert any("overrun" in record.message for record in caplog.records)
@@ -208,7 +208,7 @@ def _callback_with(source, value):
 
 def test_overrun_trims_to_target_keeping_newest_frames(device_48k):
     """An overrun drops the oldest audio, not the newest, down to the target depth."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     for value in range(1, MAX_BUFFER_FRAMES + 1):
         source._buffer.put_nowait(_marker_frame(value))
 
@@ -222,7 +222,7 @@ def test_overrun_trims_to_target_keeping_newest_frames(device_48k):
 
 def test_latency_stays_bounded_without_reads(device_48k):
     """A capture clock running ahead of playback can never queue more than the ceiling."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
 
     for _ in range(200):
         _callback_with(source, 7)
@@ -234,9 +234,9 @@ def test_overrun_logging_is_rate_limited(device_48k, caplog, monkeypatch):
     """Overruns on the real-time thread log once per interval, not once per frame."""
     clock = [1000.0]
     monkeypatch.setattr(audio_source.time, "monotonic", lambda: clock[0])
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
 
-    with caplog.at_level(logging.WARNING, logger="blackstar_bot.audio_source"):
+    with caplog.at_level(logging.WARNING, logger="guitar_amp_bot.audio_source"):
         for _ in range(100):
             _callback_with(source, 1)
         first_burst = [r for r in caplog.records if "buffer_overrun" in r.message]
@@ -256,7 +256,7 @@ def test_overrun_logging_is_rate_limited(device_48k, caplog, monkeypatch):
 
 def test_read_does_not_block_on_empty_buffer(device_48k):
     """read() must never wait: a blocking get stalls the voice player's 20 ms loop."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     source._state = "running"
 
     real_get = source._buffer.get
@@ -273,18 +273,18 @@ def test_read_does_not_block_on_empty_buffer(device_48k):
 def test_volume_rejects_negative(device_48k):
     """Negative volume should raise ValueError."""
     with pytest.raises(ValueError, match="non-negative"):
-        BlackstarAudioSource(device_48k, volume=-1.0)
+        DeviceAudioSource(device_48k, volume=-1.0)
 
 
 def test_volume_rejects_nan(device_48k):
     """NaN volume should raise ValueError."""
     with pytest.raises(ValueError, match="finite"):
-        BlackstarAudioSource(device_48k, volume=float("nan"))
+        DeviceAudioSource(device_48k, volume=float("nan"))
 
 
 def test_volume_zero_produces_silence(device_48k):
     """Volume 0.0 should produce all-zero output."""
-    source = _running(BlackstarAudioSource(device_48k, volume=0.0))
+    source = _running(DeviceAudioSource(device_48k, volume=0.0))
     num_samples = BYTES_PER_FRAME // 2
     frame = struct.pack(f"<{num_samples}h", *([0x7FFF] * num_samples))
     source._buffer.put_nowait(frame)
@@ -295,7 +295,7 @@ def test_volume_zero_produces_silence(device_48k):
 
 def test_volume_clipping(device_48k):
     """Volume > 1.0 with max samples should clip, not overflow."""
-    source = _running(BlackstarAudioSource(device_48k, volume=2.0))
+    source = _running(DeviceAudioSource(device_48k, volume=2.0))
     num_samples = BYTES_PER_FRAME // 2
     frame = struct.pack(f"<{num_samples}h", *([0x7FFF] * num_samples))
     source._buffer.put_nowait(frame)
@@ -306,7 +306,7 @@ def test_volume_clipping(device_48k):
 
 def test_set_volume_updates_runtime_scaling(device_48k):
     """set_volume() should affect later reads."""
-    source = _running(BlackstarAudioSource(device_48k, volume=1.0))
+    source = _running(DeviceAudioSource(device_48k, volume=1.0))
     source.set_volume(0.25)
     assert source.volume == 0.25
 
@@ -320,7 +320,7 @@ def test_set_volume_updates_runtime_scaling(device_48k):
 
 def test_device_name_exposes_selected_device(device_48k):
     """device_name should expose the capture device display name."""
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     assert source.device_name == BLACKSTAR_NAME
 
 
@@ -333,7 +333,7 @@ def test_device_name_exposes_selected_device(device_48k):
 def test_start_opens_verified_matching_device(device_48k, fake_streams, monkeypatch):
     """A device whose live name still matches is streamed normally."""
     _reports(monkeypatch, BLACKSTAR_NAME)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source.start()
     try:
         assert source.state == "running"
@@ -346,7 +346,7 @@ def test_start_opens_verified_matching_device(device_48k, fake_streams, monkeypa
 def test_start_refuses_when_index_holds_another_device(device_48k, fake_streams, monkeypatch):
     """A stale index pointing at a microphone must never be streamed."""
     _reports(monkeypatch, OTHER_DEVICE_NAME)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
 
     with pytest.raises(DeviceIdentityError, match="Microphone"):
         source.start()
@@ -361,7 +361,7 @@ def test_start_refuses_a_live_name_that_only_contains_the_query(
 ):
     """The identity check wants the selected device, not anything the query matches."""
     _reports(monkeypatch, f"{BLACKSTAR_NAME} (2)")
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
 
     with pytest.raises(DeviceIdentityError):
         source.start()
@@ -376,7 +376,7 @@ def test_start_closes_the_stream_if_it_fails_to_start(device_48k, fake_streams, 
     def _fail():
         raise RuntimeError("device busy")
 
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
     real_open = audio_source.sd.RawInputStream
 
     def _open_failing(**kwargs):
@@ -396,7 +396,7 @@ def test_start_closes_the_stream_if_it_fails_to_start(device_48k, fake_streams, 
 def test_open_streams_are_counted_until_closed(device_48k, fake_streams, monkeypatch):
     """/devices relies on this count to avoid reinitializing PortAudio mid-stream."""
     _reports(monkeypatch, BLACKSTAR_NAME)
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
 
     source.start()
     assert device_finder._open_streams == 1
@@ -407,7 +407,7 @@ def test_open_streams_are_counted_until_closed(device_48k, fake_streams, monkeyp
 
 def test_a_refused_stream_is_not_counted_as_open(device_48k, fake_streams, monkeypatch):
     _reports(monkeypatch, OTHER_DEVICE_NAME)
-    source = BlackstarAudioSource(device_48k)
+    source = DeviceAudioSource(device_48k)
 
     with pytest.raises(DeviceIdentityError):
         source.start()
@@ -418,7 +418,7 @@ def test_a_refused_stream_is_not_counted_as_open(device_48k, fake_streams, monke
 def test_start_refuses_when_live_name_is_unknown(device_48k, fake_streams, monkeypatch):
     """An unreadable device name is treated as a mismatch, not as a pass."""
     _reports(monkeypatch, None)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
 
     with pytest.raises(DeviceIdentityError):
         source.start()
@@ -429,7 +429,7 @@ def test_start_refuses_when_live_name_is_unknown(device_48k, fake_streams, monke
 
 def test_read_returns_silence_while_reacquiring(device_48k):
     """Capture is muted the moment the device identity is in doubt."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     source._buffer.put_nowait(b"\x11" * BYTES_PER_FRAME)
 
     source._signal_loss("unplugged")
@@ -440,7 +440,7 @@ def test_read_returns_silence_while_reacquiring(device_48k):
 
 def test_loss_drains_frames_captured_before_the_gap(device_48k):
     """Queued frames may be from the replacement device, so they are dropped."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     source._buffer.put_nowait(b"\x11" * BYTES_PER_FRAME)
 
     source._signal_loss("unplugged")
@@ -453,7 +453,7 @@ def test_loss_drains_frames_captured_before_the_gap(device_48k):
 
 def test_inactive_stream_triggers_loss(device_48k):
     """A stream PortAudio aborted means the device is gone."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     stream = FakeStream()
     stream.active = False
 
@@ -464,7 +464,7 @@ def test_inactive_stream_triggers_loss(device_48k):
 
 def test_frame_starvation_triggers_loss(device_48k):
     """A silent-but-open stream is treated as a loss rather than as quiet."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
 
     source._check_running_stream(FakeStream(), time.monotonic() - STARVATION_SECONDS - 0.5)
 
@@ -473,7 +473,7 @@ def test_frame_starvation_triggers_loss(device_48k):
 
 def test_callback_error_status_triggers_loss(device_48k):
     """A non-overflow callback status means capture can no longer be trusted."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     indata = np.zeros((960, 2), dtype=np.int16)
 
     source._audio_callback(indata, 960, None, FakeStatus(input_underflow=True))
@@ -484,7 +484,7 @@ def test_callback_error_status_triggers_loss(device_48k):
 
 def test_callback_overflow_status_keeps_streaming(device_48k):
     """An overflow is normal under load and must not mute the stream."""
-    source = _running(BlackstarAudioSource(device_48k))
+    source = _running(DeviceAudioSource(device_48k))
     indata = np.zeros((960, 2), dtype=np.int16)
 
     source._audio_callback(indata, 960, None, FakeStatus(input_overflow=True))
@@ -497,7 +497,7 @@ def test_reacquire_resumes_on_matching_device(device_48k, fake_streams, monkeypa
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_48k)
     _reports(monkeypatch, BLACKSTAR_NAME)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
     assert source._try_reacquire() is True
@@ -510,7 +510,7 @@ def test_reacquire_refuses_a_different_device(device_48k, fake_streams, monkeypa
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_48k)
     _reports(monkeypatch, OTHER_DEVICE_NAME)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
     assert source._try_reacquire() is False
@@ -523,7 +523,7 @@ def test_reacquire_waits_while_device_is_absent(device_48k, monkeypatch):
     """With no matching device, stay muted rather than opening anything."""
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: None)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
     assert source._try_reacquire() is False
@@ -537,7 +537,7 @@ def test_reacquire_rejects_a_device_that_cannot_capture_48k(
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_44k)
     _cannot_capture(monkeypatch)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
     assert source._try_reacquire() is False
@@ -552,7 +552,7 @@ def test_reacquire_refuses_an_ambiguous_query(device_48k, fake_streams, monkeypa
 
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
     monkeypatch.setattr(audio_source, "find_device_by_name", _ambiguous)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
     assert source._try_reacquire() is False
@@ -563,7 +563,7 @@ def test_reacquire_refuses_an_ambiguous_query(device_48k, fake_streams, monkeypa
 def test_give_up_notifies_once_and_stops(device_48k):
     """Giving up stops capture and notifies the bot layer a single time."""
     calls = []
-    source = BlackstarAudioSource(device_48k, on_unavailable=lambda: calls.append(1))
+    source = DeviceAudioSource(device_48k, on_unavailable=lambda: calls.append(1))
     source._state = "reacquiring"
 
     source._give_up()
@@ -580,7 +580,7 @@ def test_give_up_survives_a_failing_callback(device_48k):
     def _boom():
         raise RuntimeError("boom")
 
-    source = BlackstarAudioSource(device_48k, on_unavailable=_boom)
+    source = DeviceAudioSource(device_48k, on_unavailable=_boom)
     source._state = "reacquiring"
 
     source._give_up()
@@ -596,7 +596,7 @@ def test_watchdog_resumes_audio_once_the_device_returns(device_48k, fake_streams
     monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_48k)
     _reports(monkeypatch, BLACKSTAR_NAME)
 
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     reacquired = threading.Event()
     real_try_reacquire = source._try_reacquire
 
@@ -628,7 +628,7 @@ def test_watchdog_gives_up_when_the_device_stays_gone(device_48k, fake_streams, 
     _reports(monkeypatch, BLACKSTAR_NAME)
 
     gave_up = threading.Event()
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar", on_unavailable=gave_up.set)
+    source = DeviceAudioSource(device_48k, device_query="Blackstar", on_unavailable=gave_up.set)
     source.start()
     try:
         source._signal_loss("unplugged")
@@ -658,7 +658,7 @@ def test_cleanup_from_the_watchdog_thread_does_not_join_itself(
         source.cleanup()
         cleaned_up.set()
 
-    source = BlackstarAudioSource(
+    source = DeviceAudioSource(
         device_48k, device_query="Blackstar", on_unavailable=_cleanup_from_callback
     )
     source.start()
@@ -680,7 +680,7 @@ def test_cleanup_from_the_watchdog_thread_does_not_join_itself(
 def test_cleanup_closes_the_open_stream(device_48k, fake_streams, monkeypatch):
     """cleanup() releases the device so PortAudio can be reinitialized."""
     _reports(monkeypatch, BLACKSTAR_NAME)
-    source = BlackstarAudioSource(device_48k, device_query="Blackstar")
+    source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source.start()
 
     source.cleanup()
