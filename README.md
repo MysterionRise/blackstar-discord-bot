@@ -45,7 +45,7 @@ time *with* them; tools such as Jamulus or SonoBus cover that.
 | Platform | Status | Audio dependencies |
 |---|---|---|
 | macOS | Verified with a real amp (Blackstar ID:Core V4); the primary platform | `brew install portaudio ffmpeg` |
-| Linux | Expected to work (ALSA); not yet verified with an amp | `sudo apt install libportaudio2 ffmpeg` |
+| Linux | Capture verified in CI against a virtual ALSA/PulseAudio device; not yet with a real amp. See [Linux](#linux) | `sudo apt install libportaudio2 ffmpeg` |
 | Windows | Expected to work (WASAPI); not yet verified with an amp | None: the sounddevice wheel bundles PortAudio. FFmpeg on `PATH` only for the FFmpeg backend |
 
 The sounddevice backend is the same code on every platform. Only its device
@@ -249,6 +249,33 @@ Log lines carry their context as `key=value` fields (for example
 `voice_connect_failed channel=General attempt=2`). Set `LOG_LEVEL` to `DEBUG`,
 `INFO` (default), `WARNING` or `ERROR` to control how much is written.
 
+## Linux
+
+The capture path is exercised on every CI run: the `linux-audio` job plays a
+test tone into a virtual PulseAudio device and checks, through real PortAudio
+and ALSA, that stereo, swapped and mono capture deliver it on the right sides.
+What is still missing is a run with a real amp, so if you have one on Linux,
+please try the checklist below and report the result in an issue.
+
+1. Install the audio stack and Python 3.12 or newer: `sudo apt install
+   libportaudio2`. Ubuntu 24.04 and Debian 13 ship a recent enough Python; on
+   older systems, including Raspberry Pi OS based on Debian 12, install one
+   with [uv](https://docs.astral.sh/uv/) (`uv python install 3.12`).
+2. Run `python scripts/list_devices.py` with the amp plugged in, then
+   `guitar-amp-bot-setup`.
+3. Pick the amp's own device (named like `Blackstar ID:Core: USB Audio
+   (hw:2,0)`), not `pulse`, `pipewire` or `default`. Those are the sound
+   server, and PulseAudio and PipeWire move a recording to another input when
+   its device disappears, so an unplugged amp could turn into your microphone
+   without PortAudio, and therefore the bot, noticing.
+4. If opening the amp fails with "Device unavailable", the sound server is
+   holding it. Release it with `pactl set-card-profile <card> off` (the card
+   name comes from `pactl list short cards`), or turn the card's profile off in
+   pavucontrol.
+5. Run `guitar-amp-bot`, `/stream` from a voice channel, check `/status`, then
+   unplug the amp for a few seconds and plug it back in: the stream should mute
+   and resume on its own.
+
 ## Docker (Linux hosts only, experimental)
 
 Docker Desktop on macOS and Windows runs containers in a Linux VM that cannot
@@ -278,6 +305,9 @@ mypy src/
 
 # Run tests
 pytest
+
+# Capture from a virtual Linux audio device (see AGENTS.md for the setup)
+LINUX_AUDIO_TEST=1 PULSE_SOURCE=virtual_amp.monitor pytest -m linux_audio --no-cov
 
 # Run all checks (same as pre-commit)
 pre-commit run --all-files
@@ -310,6 +340,7 @@ src/guitar_amp_bot/
 tests/
   unit/                # Unit tests (mocked hardware)
   integration/         # Integration tests (mocked Discord client)
+  hardware/            # Opt-in capture tests against a virtual Linux audio device
 scripts/
   create_labels.sh     # Bulk-create GitHub labels
   list_devices.py      # List available audio input devices

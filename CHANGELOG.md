@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Linux capture is tested in CI: a `linux-audio` job plays a tone into a
+  virtual PulseAudio device and checks stereo, swapped and mono capture
+  through real PortAudio and ALSA (`tests/hardware/`, opt-in locally with
+  `LINUX_AUDIO_TEST=1`). The README has a checklist for trying a real amp on
+  Linux
 - `INPUT_CHANNELS` chooses which device inputs are streamed: `1,2` (the
   default), a single input such as `1` sent to both sides as mono, or a pair
   such as `3,4`. Single-input devices (guitar-to-USB cables, one-input
@@ -66,6 +71,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A stream is no longer declared lost while waiting for its first block. Through
+  ALSA's pulse or pipewire plugin the first block took about 1.8 s after
+  PortAudio was reinitialized, which every `/stream` and every re-acquisition
+  does, so the 1 s no-frames check muted the stream and could keep re-acquiring
+  until it gave up. The first block now gets 5 s; the 1 s check applies once
+  audio flows
 - Release notes now come from this file: the release workflow publishes the
   `CHANGELOG.md` section for the pushed `vX.Y.Z` tag, and fails if the tag does
   not match the `pyproject.toml` version. It previously ran `cz changelog` with

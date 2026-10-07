@@ -56,6 +56,10 @@ OVERRUN_LOG_INTERVAL_SECONDS = 10.0
 
 WATCHDOG_INTERVAL_SECONDS = 0.5
 STARVATION_SECONDS = 1.0
+# The first block after an open can take longer: through ALSA's pulse or
+# pipewire plugin it was measured at about 1.8 s after PortAudio was
+# reinitialized, which every /stream does.
+FIRST_FRAME_TIMEOUT_SECONDS = 5.0
 RETRY_BACKOFF_SECONDS = 2.0
 REACQUIRE_TIMEOUT_SECONDS = 60.0
 WATCHDOG_JOIN_TIMEOUT_SECONDS = 5.0
@@ -95,6 +99,7 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
         self._lock = threading.Lock()
         self._state: CaptureState = "stopped"
         self._last_frame_at = 0.0
+        self._first_frame_seen = False
         self._shutdown = threading.Event()
         self._watchdog: threading.Thread | None = None
         self._unavailable_fired = False
@@ -163,6 +168,7 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
             return
 
         self._last_frame_at = time.monotonic()
+        self._first_frame_seen = True
         data = bytes(indata) if self._columns is None else self._select_inputs(indata)
         try:
             self._buffer.put_nowait(data)
@@ -263,6 +269,7 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
             self._stream = stream
             self._device = device
             self._last_frame_at = time.monotonic()
+            self._first_frame_seen = False
 
     def read(self) -> bytes:
         """Return the next 3840-byte PCM frame, or silence on underrun."""
@@ -333,13 +340,14 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
                 state = self._state
                 stream = self._stream
                 last_frame_at = self._last_frame_at
+                first_frame_seen = self._first_frame_seen
 
             if state == "stopped":
                 return
 
             if state == "running":
                 give_up_at = None
-                self._check_running_stream(stream, last_frame_at)
+                self._check_running_stream(stream, last_frame_at, first_frame_seen=first_frame_seen)
                 continue
 
             # Re-acquiring: tear the old stream down before PortAudio is
@@ -358,11 +366,18 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
                 self._give_up()
                 return
 
-    def _check_running_stream(self, stream: sd.RawInputStream | None, last_frame_at: float) -> None:
+    def _check_running_stream(
+        self,
+        stream: sd.RawInputStream | None,
+        last_frame_at: float,
+        *,
+        first_frame_seen: bool = True,
+    ) -> None:
         if stream is not None and not bool(getattr(stream, "active", True)):
             self._signal_loss("stream_inactive")
             return
-        if last_frame_at and time.monotonic() - last_frame_at > STARVATION_SECONDS:
+        limit = STARVATION_SECONDS if first_frame_seen else FIRST_FRAME_TIMEOUT_SECONDS
+        if last_frame_at and time.monotonic() - last_frame_at > limit:
             self._signal_loss("no_frames")
 
     def _try_reacquire(self) -> bool:

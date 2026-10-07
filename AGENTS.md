@@ -47,6 +47,18 @@ rather than sleeping, and keep the developer's `.env` out of the suite (see
 `tests/conftest.py`). Add or update unit tests for behavior in
 individual modules and integration tests for command-level flows.
 
+`tests/hardware/` is the one exception to mocking: marked `linux_audio`, it
+captures a test tone through real PortAudio and ALSA from a virtual PulseAudio
+device, and is skipped unless `LINUX_AUDIO_TEST=1`. CI's `linux-audio` job runs
+it. Locally, on Linux, with `pulseaudio`, `pulseaudio-utils`,
+`libasound2-plugins`, `libportaudio2` and `ffmpeg` installed:
+
+```bash
+pulseaudio --start --exit-idle-time=-1
+pactl load-module module-null-sink sink_name=virtual_amp
+LINUX_AUDIO_TEST=1 PULSE_SOURCE=virtual_amp.monitor pytest -m linux_audio --no-cov
+```
+
 ## Commit & Pull Request Guidelines
 
 Commit messages are checked by Commitizen, so prefer conventional forms such as

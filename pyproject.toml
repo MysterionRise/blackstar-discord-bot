@@ -120,6 +120,9 @@ warn_return_any = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+  "linux_audio: captures from a virtual Linux audio device; opt in with LINUX_AUDIO_TEST=1",
+]
 addopts = [
   "--cov=src/guitar_amp_bot",
   "--cov-report=term-missing",

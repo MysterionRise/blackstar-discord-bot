@@ -11,6 +11,7 @@ import pytest
 from guitar_amp_bot import audio_source, device_finder
 from guitar_amp_bot.audio_source import (
     BYTES_PER_FRAME,
+    FIRST_FRAME_TIMEOUT_SECONDS,
     MAX_BUFFER_FRAMES,
     OVERRUN_LOG_INTERVAL_SECONDS,
     SILENCE,
@@ -471,6 +472,38 @@ def test_frame_starvation_triggers_loss(device_48k):
     source._check_running_stream(FakeStream(), time.monotonic() - STARVATION_SECONDS - 0.5)
 
     assert source.state == "reacquiring"
+
+
+def test_a_slow_first_frame_is_not_mistaken_for_a_loss(device_48k):
+    """ALSA's pulse plugin can take seconds to deliver the first block."""
+    source = _running(DeviceAudioSource(device_48k))
+    opened_at = time.monotonic() - STARVATION_SECONDS - 0.5
+
+    source._check_running_stream(FakeStream(), opened_at, first_frame_seen=False)
+
+    assert source.state == "running"
+
+
+def test_no_first_frame_at_all_still_triggers_loss(device_48k):
+    source = _running(DeviceAudioSource(device_48k))
+    opened_at = time.monotonic() - FIRST_FRAME_TIMEOUT_SECONDS - 0.5
+
+    source._check_running_stream(FakeStream(), opened_at, first_frame_seen=False)
+
+    assert source.state == "reacquiring"
+
+
+def test_each_open_waits_for_its_own_first_frame(device_48k, fake_streams, monkeypatch):
+    _reports(monkeypatch, BLACKSTAR_NAME)
+    source = DeviceAudioSource(device_48k)
+
+    source.start()
+    assert source._first_frame_seen is False
+    source._audio_callback(np.zeros((960, 2), dtype=np.int16), 960, None, None)
+    assert source._first_frame_seen is True
+    source._open_verified_stream(device_48k)
+    assert source._first_frame_seen is False
+    source.cleanup()
 
 
 def test_callback_error_status_triggers_loss(device_48k):
