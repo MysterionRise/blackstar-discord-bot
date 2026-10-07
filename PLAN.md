@@ -37,6 +37,10 @@ Key constraints:
 - Format: **48000 Hz, 16-bit, stereo**, which is what Discord voice expects. A
   device must be able to capture it, as checked by `sd.check_input_settings`;
   its default rate does not matter.
+- Inputs: `INPUT_CHANNELS` (default `1,2`) names one or two device inputs.
+  Capture opens every input up to the highest one named and the PortAudio
+  callback picks the named ones as left and right; a single input goes to both
+  sides. The default pair is passed through untouched.
 - Frame size: **3840 bytes** per `read()` (960 samples x 2 channels x 2 bytes).
   `read()` always returns a full frame and never blocks: silence on underrun
   and whenever capture is not running.

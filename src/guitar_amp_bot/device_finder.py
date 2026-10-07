@@ -20,6 +20,12 @@ SAMPLE_RATE = 48000
 CHANNELS = 2
 SAMPLE_DTYPE = "int16"
 
+# Device inputs sent to Discord, numbered from 1 as on the device: one input is
+# sent to both sides as mono, two are sent as left and right. Amps and
+# modellers deliver stereo on inputs 1 and 2; on an audio interface the guitar
+# is usually on one input alone.
+DEFAULT_INPUT_CHANNELS: tuple[int, ...] = (1, 2)
+
 # Lower ranks win when the same device is listed under several host APIs.
 # Windows lists every input under MME too, often truncated and defaulting to
 # 44.1 kHz, so the native APIs are preferred over it. Unknown APIs sit between.
@@ -72,6 +78,44 @@ class AmbiguousDeviceError(LookupError):
         self.candidates = candidates
         names = ", ".join(repr(name) for name in candidates)
         super().__init__(f"{query!r} matches several input devices: {names}")
+
+
+def validate_input_channels(channels: tuple[int, ...]) -> tuple[int, ...]:
+    """Return *channels* if it names one input, or two different inputs.
+
+    Raises:
+        ValueError: *channels* is empty, too long, repeats an input, or is not
+            numbered from 1.
+    """
+    if not 1 <= len(channels) <= CHANNELS:
+        msg = f"name one input for mono or two for stereo, got {len(channels)}"
+        raise ValueError(msg)
+    if any(channel < 1 for channel in channels):
+        msg = f"inputs are numbered from 1, got {format_input_channels(channels)}"
+        raise ValueError(msg)
+    if len(set(channels)) != len(channels):
+        msg = f"name two different inputs, or one for mono, got {format_input_channels(channels)}"
+        raise ValueError(msg)
+    return channels
+
+
+def parse_input_channels(raw: str) -> tuple[int, ...]:
+    """Parse an ``INPUT_CHANNELS`` value such as ``"1"`` or ``"1,2"``.
+
+    Raises:
+        ValueError: *raw* is not one or two different input numbers.
+    """
+    try:
+        channels = tuple(int(part) for part in raw.split(","))
+    except ValueError:
+        msg = f"expected one or two input numbers such as '1' or '1,2', got {raw!r}"
+        raise ValueError(msg) from None
+    return validate_input_channels(channels)
+
+
+def format_input_channels(channels: tuple[int, ...]) -> str:
+    """Return *channels* in the form ``INPUT_CHANNELS`` takes, e.g. ``"1,2"``."""
+    return ",".join(str(channel) for channel in channels)
 
 
 def _hostapi_names() -> list[str]:
@@ -142,55 +186,72 @@ def match_devices(devices: list[AudioDevice], query: str) -> list[AudioDevice]:
     return sorted(candidates, key=_hostapi_rank)
 
 
-def capture_problem(device: AudioDevice) -> str | None:
-    """Return why *device* cannot capture Discord's PCM format, or None if it can.
+def capture_problem(
+    device: AudioDevice, input_channels: tuple[int, ...] = DEFAULT_INPUT_CHANNELS
+) -> str | None:
+    """Return why *device* cannot capture *input_channels* for Discord, or None if it can.
 
-    Asks PortAudio whether the format is supported instead of trusting
+    Capture opens every input up to the highest one in *input_channels*. Asks
+    PortAudio whether that is supported at 48 kHz instead of trusting
     ``default_samplerate``: plenty of interfaces default to 44.1 kHz but open
     at 48 kHz without complaint.
     """
-    if device.max_input_channels < CHANNELS:
+    needed = max(input_channels)
+    if device.max_input_channels < needed:
+        hint = (
+            " Set INPUT_CHANNELS=1 to capture its single input as mono."
+            if device.max_input_channels == 1
+            else ""
+        )
         return (
             f"'{device.name}' has {device.max_input_channels} input channel(s), "
-            f"but {CHANNELS} are required."
+            f"but {needed} are required for INPUT_CHANNELS="
+            f"{format_input_channels(input_channels)}.{hint}"
         )
     try:
         with _PORTAUDIO_LOCK:
             sd.check_input_settings(
                 device=device.index,
-                channels=CHANNELS,
+                channels=needed,
                 dtype=SAMPLE_DTYPE,
                 samplerate=SAMPLE_RATE,
             )
     except Exception as exc:
-        return f"'{device.name}' cannot capture {SAMPLE_RATE} Hz 16-bit stereo: {exc}"
+        return f"'{device.name}' cannot capture {SAMPLE_RATE} Hz 16-bit audio: {exc}"
     return None
 
 
-def select_device(devices: list[AudioDevice], query: str) -> AudioDevice | None:
+def select_device(
+    devices: list[AudioDevice],
+    query: str,
+    input_channels: tuple[int, ...] = DEFAULT_INPUT_CHANNELS,
+) -> AudioDevice | None:
     """Pick the device the bot captures from for *query*, or None if nothing matches.
 
     Among the matches, the best-ranked host API that can actually capture
-    48 kHz stereo wins. If none can, the best-ranked match is still returned
-    so that opening it fails with a clear reason rather than "not found".
+    *input_channels* at 48 kHz wins. If none can, the best-ranked match is
+    still returned so that opening it fails with a clear reason rather than
+    "not found".
 
     Raises:
         AmbiguousDeviceError: *query* matches several distinct devices.
     """
     candidates = match_devices(devices, query)
     for device in candidates:
-        if capture_problem(device) is None:
+        if capture_problem(device, input_channels) is None:
             return device
     return candidates[0] if candidates else None
 
 
-def find_device_by_name(name: str) -> AudioDevice | None:
+def find_device_by_name(
+    name: str, input_channels: tuple[int, ...] = DEFAULT_INPUT_CHANNELS
+) -> AudioDevice | None:
     """Find the input device *name* selects among those present right now.
 
     Raises:
         AmbiguousDeviceError: *name* matches several distinct devices.
     """
-    return select_device(list_input_devices(), name)
+    return select_device(list_input_devices(), name, input_channels)
 
 
 def refresh_devices() -> None:

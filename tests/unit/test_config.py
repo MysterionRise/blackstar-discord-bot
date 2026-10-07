@@ -14,7 +14,15 @@ OWNER_ID = 424242424242424242
 def isolate_env(monkeypatch, tmp_path):
     """Keep a developer's real .env out of these tests."""
     monkeypatch.chdir(tmp_path)
-    for key in ("DISCORD_TOKEN", "OWNER_ID", "GUILD_ID", "AUDIO_DEVICE", "LOG_FILE", "LOG_LEVEL"):
+    for key in (
+        "DISCORD_TOKEN",
+        "OWNER_ID",
+        "GUILD_ID",
+        "AUDIO_DEVICE",
+        "INPUT_CHANNELS",
+        "LOG_FILE",
+        "LOG_LEVEL",
+    ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("AUDIO_DEVICE", "Blackstar")
 
@@ -119,3 +127,28 @@ def test_log_level_rejects_unknown_levels(monkeypatch):
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_input_channels_default_to_the_first_stereo_pair(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "my-token")
+    assert Settings().input_channels == (1, 2)
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("1", (1,)), ("3,4", (3, 4)), (" 2 ", (2,))])
+def test_input_channels_are_read_from_the_environment(monkeypatch, raw, expected):
+    monkeypatch.setenv("DISCORD_TOKEN", "my-token")
+    monkeypatch.setenv("INPUT_CHANNELS", raw)
+    assert Settings().input_channels == expected
+
+
+@pytest.mark.parametrize("raw", ["", "0", "1,1", "1,2,3", "left"])
+def test_input_channels_reject_invalid_values(monkeypatch, raw):
+    monkeypatch.setenv("DISCORD_TOKEN", "my-token")
+    monkeypatch.setenv("INPUT_CHANNELS", raw)
+    with pytest.raises(ValidationError, match="input_channels"):
+        Settings()
+
+
+def test_input_channels_are_validated_when_passed_directly():
+    with pytest.raises(ValidationError, match="input_channels"):
+        Settings(discord_token="t", audio_device="amp", input_channels=(0,))

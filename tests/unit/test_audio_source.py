@@ -90,7 +90,7 @@ def fake_streams(monkeypatch):
             return stream
 
     monkeypatch.setattr(audio_source, "sd", _FakeSD)
-    monkeypatch.setattr(audio_source, "capture_problem", lambda _device: None)
+    monkeypatch.setattr(audio_source, "capture_problem", lambda _device, _channels: None)
     return created
 
 
@@ -99,7 +99,9 @@ def _cannot_capture(monkeypatch):
     monkeypatch.setattr(
         audio_source,
         "capture_problem",
-        lambda device: f"'{device.name}' cannot capture 48000 Hz 16-bit stereo: Invalid rate",
+        lambda device, _channels: (
+            f"'{device.name}' cannot capture 48000 Hz 16-bit stereo: Invalid rate"
+        ),
     )
 
 
@@ -495,7 +497,7 @@ def test_callback_overflow_status_keeps_streaming(device_48k):
 def test_reacquire_resumes_on_matching_device(device_48k, fake_streams, monkeypatch):
     """Audio resumes by name once the amp is back."""
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_48k)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: device_48k)
     _reports(monkeypatch, BLACKSTAR_NAME)
     source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
@@ -508,7 +510,7 @@ def test_reacquire_resumes_on_matching_device(device_48k, fake_streams, monkeypa
 def test_reacquire_refuses_a_different_device(device_48k, fake_streams, monkeypatch):
     """The whole point: re-acquisition never settles for another input."""
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_48k)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: device_48k)
     _reports(monkeypatch, OTHER_DEVICE_NAME)
     source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
@@ -522,7 +524,7 @@ def test_reacquire_refuses_a_different_device(device_48k, fake_streams, monkeypa
 def test_reacquire_waits_while_device_is_absent(device_48k, monkeypatch):
     """With no matching device, stay muted rather than opening anything."""
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: None)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: None)
     source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
 
@@ -535,7 +537,7 @@ def test_reacquire_rejects_a_device_that_cannot_capture_48k(
 ):
     """A match PortAudio cannot open at 48 kHz is refused, as it is at start."""
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_44k)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: device_44k)
     _cannot_capture(monkeypatch)
     source = DeviceAudioSource(device_48k, device_query="Blackstar")
     source._state = "reacquiring"
@@ -547,7 +549,7 @@ def test_reacquire_rejects_a_device_that_cannot_capture_48k(
 def test_reacquire_refuses_an_ambiguous_query(device_48k, fake_streams, monkeypatch):
     """If the query now matches several inputs, keep waiting rather than guess."""
 
-    def _ambiguous(query):
+    def _ambiguous(query, _channels):
         raise AmbiguousDeviceError(query, ["Blackstar ID:Core V4", "Blackstar ID:Core V4 (2)"])
 
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
@@ -593,7 +595,7 @@ def test_watchdog_resumes_audio_once_the_device_returns(device_48k, fake_streams
     monkeypatch.setattr(audio_source, "WATCHDOG_INTERVAL_SECONDS", 0.01)
     monkeypatch.setattr(audio_source, "RETRY_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: device_48k)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: device_48k)
     _reports(monkeypatch, BLACKSTAR_NAME)
 
     source = DeviceAudioSource(device_48k, device_query="Blackstar")
@@ -624,7 +626,7 @@ def test_watchdog_gives_up_when_the_device_stays_gone(device_48k, fake_streams, 
     monkeypatch.setattr(audio_source, "RETRY_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(audio_source, "REACQUIRE_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: None)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: None)
     _reports(monkeypatch, BLACKSTAR_NAME)
 
     gave_up = threading.Event()
@@ -647,7 +649,7 @@ def test_cleanup_from_the_watchdog_thread_does_not_join_itself(
     monkeypatch.setattr(audio_source, "RETRY_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(audio_source, "REACQUIRE_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
-    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query: None)
+    monkeypatch.setattr(audio_source, "find_device_by_name", lambda _query, _channels: None)
     _reports(monkeypatch, BLACKSTAR_NAME)
 
     cleaned_up = threading.Event()
@@ -688,3 +690,113 @@ def test_cleanup_closes_the_open_stream(device_48k, fake_streams, monkeypatch):
     assert fake_streams[0].closed is True
     assert source.state == "stopped"
     assert source.read() == SILENCE
+
+
+def _interleaved(columns):
+    """Return one 20 ms capture block whose input *n* carries columns[n - 1]."""
+    return np.column_stack([np.full(960, value, dtype=np.int16) for value in columns])
+
+
+def _stereo_pairs(frame):
+    return {tuple(pair) for pair in np.frombuffer(frame, dtype=np.int16).reshape(-1, 2)}
+
+
+def test_a_mono_input_is_sent_to_both_sides(device_48k):
+    """A guitar on input 1 of an interface must be heard in both ears."""
+    source = _running(DeviceAudioSource(device_48k, input_channels=(1,)))
+
+    source._audio_callback(_interleaved([1000]), 960, None, None)
+    frame = source.read()
+
+    assert len(frame) == BYTES_PER_FRAME
+    assert _stereo_pairs(frame) == {(1000, 1000)}
+
+
+def test_the_chosen_pair_of_a_multi_input_device_is_sent(device_48k):
+    source = _running(DeviceAudioSource(device_48k, input_channels=(3, 4)))
+
+    source._audio_callback(_interleaved([1, 2, 3, 4]), 960, None, None)
+
+    assert _stereo_pairs(source.read()) == {(3, 4)}
+
+
+def test_a_single_input_beyond_the_first_pair_is_sent_as_mono(device_48k):
+    source = _running(DeviceAudioSource(device_48k, input_channels=(2,)))
+
+    source._audio_callback(_interleaved([1, 2]), 960, None, None)
+
+    assert _stereo_pairs(source.read()) == {(2, 2)}
+
+
+def test_a_reversed_pair_swaps_the_sides(device_48k):
+    source = _running(DeviceAudioSource(device_48k, input_channels=(2, 1)))
+
+    source._audio_callback(_interleaved([1, 2]), 960, None, None)
+
+    assert _stereo_pairs(source.read()) == {(2, 1)}
+
+
+def test_the_default_pair_passes_capture_through_untouched(device_48k):
+    source = _running(DeviceAudioSource(device_48k))
+    block = _interleaved([7, 9])
+
+    source._audio_callback(block, 960, None, None)
+
+    assert source.read() == block.tobytes()
+    assert source._columns is None
+
+
+@pytest.mark.parametrize(
+    ("channels", "opened"),
+    [((1,), 1), ((1, 2), 2), ((3, 4), 4), ((2,), 2)],
+)
+def test_capture_opens_every_input_up_to_the_highest_wanted(
+    device_48k, fake_streams, monkeypatch, channels, opened
+):
+    _reports(monkeypatch, BLACKSTAR_NAME)
+    source = DeviceAudioSource(device_48k, input_channels=channels)
+
+    source.start()
+    source.cleanup()
+
+    assert fake_streams[0].kwargs["channels"] == opened
+
+
+def test_start_checks_the_device_against_the_chosen_inputs(device_48k, fake_streams, monkeypatch):
+    checked = []
+    monkeypatch.setattr(
+        audio_source, "capture_problem", lambda _device, channels: checked.append(channels)
+    )
+    _reports(monkeypatch, BLACKSTAR_NAME)
+    source = DeviceAudioSource(device_48k, input_channels=(1,))
+
+    source.start()
+    source.cleanup()
+
+    assert checked == [(1,)]
+    assert source.input_channels == (1,)
+
+
+def test_reacquire_looks_for_a_device_with_the_chosen_inputs(device_48k, fake_streams, monkeypatch):
+    asked = []
+
+    def _find(query, channels):
+        asked.append((query, channels))
+        return device_48k
+
+    monkeypatch.setattr(audio_source, "refresh_devices", lambda: None)
+    monkeypatch.setattr(audio_source, "find_device_by_name", _find)
+    _reports(monkeypatch, BLACKSTAR_NAME)
+    source = DeviceAudioSource(device_48k, device_query="Blackstar", input_channels=(3, 4))
+    source._state = "reacquiring"
+
+    assert source._try_reacquire() is True
+    source.cleanup()
+
+    assert asked == [("Blackstar", (3, 4))]
+
+
+@pytest.mark.parametrize("channels", [(), (0,), (1, 1), (1, 2, 3)])
+def test_invalid_input_channels_are_rejected(device_48k, channels):
+    with pytest.raises(ValueError, match="input"):
+        DeviceAudioSource(device_48k, input_channels=channels)

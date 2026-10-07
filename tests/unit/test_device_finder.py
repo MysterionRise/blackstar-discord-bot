@@ -11,11 +11,13 @@ from guitar_amp_bot.device_finder import (
     AudioDevice,
     capture_problem,
     find_device_by_name,
+    format_input_channels,
     list_input_devices,
     live_device_name,
     match_devices,
     note_stream_closed,
     note_stream_opened,
+    parse_input_channels,
     refresh_devices,
     refresh_devices_if_idle,
     select_device,
@@ -280,3 +282,56 @@ def test_refresh_if_idle_leaves_an_open_stream_alone(mock_refresh):
         note_stream_closed()
 
     assert refresh_devices_if_idle() is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("1", (1,)), ("1,2", (1, 2)), (" 3 , 4 ", (3, 4)), ("2,1", (2, 1))],
+)
+def test_parse_input_channels_accepts_one_or_two_inputs(raw, expected):
+    assert parse_input_channels(raw) == expected
+    assert format_input_channels(expected) == raw.replace(" ", "")
+
+
+@pytest.mark.parametrize("raw", ["", "a", "1.5", "0", "-1", "1,1", "1,2,3", "1,"])
+def test_parse_input_channels_rejects_anything_else(raw):
+    with pytest.raises(ValueError, match="input"):
+        parse_input_channels(raw)
+
+
+def test_capture_problem_suggests_mono_for_a_single_input_device():
+    problem = capture_problem(_device(1, "Guitar Link", channels=1))
+
+    assert problem is not None
+    assert "2 are required" in problem
+    assert "INPUT_CHANNELS=1" in problem
+
+
+def test_capture_problem_accepts_a_mono_device_for_mono_capture(monkeypatch):
+    calls = []
+    monkeypatch.setattr(device_finder.sd, "check_input_settings", lambda **kw: calls.append(kw))
+
+    assert capture_problem(_device(1, "Guitar Link", channels=1), (1,)) is None
+    assert calls[0]["channels"] == 1
+
+
+def test_capture_problem_checks_every_input_up_to_the_highest_wanted(monkeypatch):
+    calls = []
+    monkeypatch.setattr(device_finder.sd, "check_input_settings", lambda **kw: calls.append(kw))
+
+    assert capture_problem(_device(1, "Scarlett 4i4", channels=4), (3, 4)) is None
+    assert calls[0]["channels"] == 4
+
+
+def test_capture_problem_rejects_inputs_the_device_does_not_have():
+    problem = capture_problem(_device(1, "Scarlett 2i2"), (3, 4))
+
+    assert problem is not None
+    assert "4 are required for INPUT_CHANNELS=3,4" in problem
+    assert "mono" not in problem
+
+
+def test_select_device_picks_a_mono_device_for_mono_capture():
+    devices = [_device(1, "Guitar Link", channels=1)]
+
+    assert select_device(devices, "guitar", (1,)).index == 1

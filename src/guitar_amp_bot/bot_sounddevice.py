@@ -16,9 +16,11 @@ from guitar_amp_bot.audio_source import DeviceAudioSource
 from guitar_amp_bot.authz import require_owner
 from guitar_amp_bot.config import Settings
 from guitar_amp_bot.device_finder import (
+    DEFAULT_INPUT_CHANNELS,
     AmbiguousDeviceError,
     AudioDevice,
     find_device_by_name,
+    format_input_channels,
     list_input_devices,
     refresh_devices,
     refresh_devices_if_idle,
@@ -102,6 +104,13 @@ def _effective_volume(settings: Settings) -> float:
     if _volume_override is not None:
         return _volume_override
     return settings.volume
+
+
+def _describe_input_channels(channels: tuple[int, ...]) -> str:
+    """Say which device inputs are streamed, e.g. "inputs 1+2 (stereo)"."""
+    if len(channels) == 1:
+        return f"input {channels[0]} (mono)"
+    return f"inputs {'+'.join(str(channel) for channel in channels)} (stereo)"
 
 
 def _ffmpeg_input_args(device_name: str) -> tuple[str, str]:
@@ -362,13 +371,14 @@ async def _start_sounddevice_stream(
     channel: VoiceChannel,
     device_name: str,
     volume: float,
+    input_channels: tuple[int, ...] = DEFAULT_INPUT_CHANNELS,
 ) -> None:
     # PortAudio caches its device list, so an already-unplugged amp can still
     # be listed with an index that now belongs to another input.
     # Both reinitialize or query PortAudio, which blocks; run them off the loop.
     await asyncio.to_thread(refresh_devices)
     try:
-        device = await asyncio.to_thread(find_device_by_name, device_name)
+        device = await asyncio.to_thread(find_device_by_name, device_name, input_channels)
     except AmbiguousDeviceError as exc:
         logger.info("audio_device_ambiguous", extra={"candidates": exc.candidates})
         names = "\n".join(f"- `{name}`" for name in exc.candidates)
@@ -397,6 +407,7 @@ async def _start_sounddevice_stream(
             volume=volume,
             device_query=device_name,
             on_unavailable=lambda: _schedule_on_loop(_handle_device_unavailable(ctx, connected)),
+            input_channels=input_channels,
         )
         await asyncio.to_thread(source.start)
         voice_client.play(
@@ -420,7 +431,12 @@ async def _start_sounddevice_stream(
     _register_stream(ctx, voice_client)
     logger.info(
         "sounddevice_stream_started",
-        extra={"device": device.name, "channel": getattr(channel, "name", "?"), "volume": volume},
+        extra={
+            "device": device.name,
+            "channel": getattr(channel, "name", "?"),
+            "volume": volume,
+            "input_channels": format_input_channels(input_channels),
+        },
     )
     await ctx.respond(f"Streaming audio from **{device.name}** in {channel.name}.")
 
@@ -429,7 +445,14 @@ async def _start_ffmpeg_stream(
     ctx: discord.ApplicationContext,
     channel: VoiceChannel,
     device_name: str,
+    input_channels: tuple[int, ...] = DEFAULT_INPUT_CHANNELS,
 ) -> None:
+    if input_channels != DEFAULT_INPUT_CHANNELS:
+        logger.warning(
+            "input_channels_ignored: INPUT_CHANNELS applies to the sounddevice backend "
+            "only; FFmpeg captures the device's own stereo",
+            extra={"input_channels": format_input_channels(input_channels)},
+        )
     voice_client: VoiceClient | None = None
     try:
         voice_client = await _connect_with_retry(channel)
@@ -557,6 +580,7 @@ async def stream(ctx: discord.ApplicationContext) -> None:
             extra={
                 "backend": selected_backend,
                 "device": selected_device,
+                "input_channels": format_input_channels(s.input_channels),
                 "volume": _effective_volume(s),
             },
         )
@@ -564,9 +588,11 @@ async def stream(ctx: discord.ApplicationContext) -> None:
     _stream_starting = True
     try:
         if selected_backend == "sounddevice":
-            await _start_sounddevice_stream(ctx, channel, selected_device, _effective_volume(s))
+            await _start_sounddevice_stream(
+                ctx, channel, selected_device, _effective_volume(s), s.input_channels
+            )
         else:
-            await _start_ffmpeg_stream(ctx, channel, selected_device)
+            await _start_ffmpeg_stream(ctx, channel, selected_device, s.input_channels)
     finally:
         _stream_starting = False
 
@@ -617,7 +643,9 @@ async def status(ctx: discord.ApplicationContext) -> None:
             )
             return
         await ctx.respond(
-            f"Streaming from **{source.device_name}** with volume `{source.volume:g}`.",
+            f"Streaming from **{source.device_name}**, "
+            f"{_describe_input_channels(source.input_channels)}, "
+            f"with volume `{source.volume:g}`.",
             ephemeral=True,
         )
         return

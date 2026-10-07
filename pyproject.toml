@@ -12,7 +12,7 @@ license = { text = "MIT" }
 dependencies = [
   "py-cord[voice]>=2.8.0",  # 2.8 adds DAVE E2EE; Discord rejects older clients with 4017
   "python-dotenv>=1.2.2",
-  "pydantic-settings>=2.3.0",
+  "pydantic-settings>=2.7.0",  # 2.7 adds NoDecode, used for INPUT_CHANNELS
   "sounddevice>=0.4.6",
   "numpy>=1.26.0",
 ]

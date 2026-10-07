@@ -7,10 +7,13 @@ import os
 from pathlib import Path
 
 from guitar_amp_bot.device_finder import (
+    DEFAULT_INPUT_CHANNELS,
     AmbiguousDeviceError,
     AudioDevice,
     capture_problem,
+    format_input_channels,
     list_input_devices,
+    parse_input_channels,
     refresh_devices,
     select_device,
 )
@@ -127,7 +130,8 @@ def _ask_device_name(prompt: str) -> str:
         _say("  A device is required.")
 
 
-def _ask_device() -> str:
+def _ask_device() -> tuple[str, AudioDevice | None]:
+    """Return the ``AUDIO_DEVICE`` query, and the device it names if one is plugged in."""
     refresh_devices()
     devices = list_input_devices()
     if not devices:
@@ -135,7 +139,7 @@ def _ask_device() -> str:
             "\nNo audio input devices detected. Plug in the amp and re-run this, "
             "or enter a name to match later."
         )
-        return _ask_device_name("Device name: ")
+        return _ask_device_name("Device name: "), None
 
     _say("\nDetected audio inputs:")
     for position, device in enumerate(devices, start=1):
@@ -150,8 +154,7 @@ def _ask_device() -> str:
                 _say("  No device with that number.")
                 continue
             device = devices[chosen - 1]
-            _warn_if_unusable(device)
-            return device.name
+            return device.name, device
         try:
             matched = select_device(devices, query)
         except AmbiguousDeviceError as exc:
@@ -160,13 +163,38 @@ def _ask_device() -> str:
                 _say(f"    - {name}")
             _say("  Pick a number or type a more specific name.")
             continue
-        if matched is not None:
-            _warn_if_unusable(matched)
-        return query
+        return query, matched
 
 
-def _warn_if_unusable(device: AudioDevice) -> None:
-    problem = capture_problem(device)
+def _ask_input_channels(device: AudioDevice) -> tuple[int, ...]:
+    """Ask which of *device*'s inputs to stream; a single input is streamed as mono."""
+    if device.max_input_channels == 1:
+        _say(f"\n'{device.name}' has a single input, so it is streamed as mono.")
+        return (1,)
+
+    default = format_input_channels(DEFAULT_INPUT_CHANNELS)
+    _say(
+        f"\n'{device.name}' has {device.max_input_channels} inputs. Amps and modellers "
+        f"send stereo on inputs {default}: press Enter. On an audio interface, type the "
+        "input your instrument is plugged into (e.g. 1) to hear it in both ears."
+    )
+    while True:
+        raw = _ask(f"Inputs to stream [{default}]: ").strip()
+        if not raw:
+            return DEFAULT_INPUT_CHANNELS
+        try:
+            channels = parse_input_channels(raw)
+        except ValueError as exc:
+            _say(f"  {exc}. Try again.")
+            continue
+        if max(channels) > device.max_input_channels:
+            _say(f"  It only has inputs 1 to {device.max_input_channels}. Try again.")
+            continue
+        return channels
+
+
+def _warn_if_unusable(device: AudioDevice, input_channels: tuple[int, ...]) -> None:
+    problem = capture_problem(device, input_channels)
     if problem is not None:
         _say(f"  Note: {problem} The sounddevice backend will refuse it.")
 
@@ -190,7 +218,11 @@ def main() -> None:
         "\nGUILD_ID registers the commands in a single server. Leave it blank "
         "to use the bot in every server you add it to.",
     )
-    device_query = _ask_device()
+    device_query, device = _ask_device()
+    input_channels: tuple[int, ...] | None = None
+    if device is not None:
+        input_channels = _ask_input_channels(device)
+        _warn_if_unusable(device, input_channels)
 
     if ENV_PATH.exists():
         # The old file holds a token too: the backup gets the same 0600 mode.
@@ -205,6 +237,9 @@ def main() -> None:
                 "OWNER_ID": None if owner_id is None else str(owner_id),
                 "GUILD_ID": None if guild_id is None else str(guild_id),
                 "AUDIO_DEVICE": device_query,
+                "INPUT_CHANNELS": (
+                    None if input_channels is None else format_input_channels(input_channels)
+                ),
                 "AUDIO_BACKEND": "sounddevice",
             }
         ),

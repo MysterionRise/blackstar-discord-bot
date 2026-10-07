@@ -28,7 +28,7 @@ def wizard(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(setup_wizard, "refresh_devices", lambda: None)
     monkeypatch.setattr(setup_wizard, "list_input_devices", _devices)
-    monkeypatch.setattr(setup_wizard, "capture_problem", lambda _device: None)
+    monkeypatch.setattr(setup_wizard, "capture_problem", lambda _device, _channels: None)
     monkeypatch.setattr(setup_wizard.getpass, "getpass", lambda _prompt: TOKEN)
     monkeypatch.setattr(setup_wizard, "_say", lambda _message: None)
 
@@ -87,8 +87,8 @@ def test_write_env_is_readable_only_by_its_owner(tmp_path):
 
 
 def test_main_writes_a_usable_env_with_optional_ids_unset(wizard, tmp_path):
-    """Blank answers mean auto-detected owner and every server."""
-    wizard(["", "", "2"])
+    """Blank answers mean auto-detected owner, every server and stereo inputs."""
+    wizard(["", "", "2", ""])
 
     setup_wizard.main()
 
@@ -97,12 +97,13 @@ def test_main_writes_a_usable_env_with_optional_ids_unset(wizard, tmp_path):
     assert "# OWNER_ID=" in written
     assert "# GUILD_ID=" in written
     assert 'AUDIO_DEVICE="Blackstar ID:Core V4"' in written
+    assert 'INPUT_CHANNELS="1,2"' in written
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
 
 
 def test_main_reprompts_for_a_blank_device(wizard, tmp_path):
     """There is no default device: a blank query would match every input."""
-    wizard(["", "", "", "  ", "Blackstar"])
+    wizard(["", "", "", "  ", "Blackstar", ""])
 
     setup_wizard.main()
 
@@ -115,7 +116,9 @@ def test_main_asks_for_a_name_when_no_device_is_plugged_in(wizard, monkeypatch, 
 
     setup_wizard.main()
 
-    assert 'AUDIO_DEVICE="Katana"' in (tmp_path / ".env").read_text(encoding="utf-8")
+    written = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert 'AUDIO_DEVICE="Katana"' in written
+    assert "# INPUT_CHANNELS=" in written
 
 
 def test_main_records_explicit_ids_and_a_picked_device(wizard, tmp_path):
@@ -128,6 +131,7 @@ def test_main_records_explicit_ids_and_a_picked_device(wizard, tmp_path):
     assert 'OWNER_ID="424242424242424242"' in written
     assert 'GUILD_ID="123456789012345678"' in written
     assert 'AUDIO_DEVICE="MacBook Pro Microphone"' in written
+    assert 'INPUT_CHANNELS="1"' in written
 
 
 def test_main_leaves_an_existing_env_alone_when_declined(wizard, tmp_path):
@@ -143,7 +147,7 @@ def test_main_leaves_an_existing_env_alone_when_declined(wizard, tmp_path):
 
 
 def test_main_backs_up_the_previous_env_before_replacing_it(wizard, tmp_path):
-    wizard(["y", "", "", "2"])
+    wizard(["y", "", "", "2", ""])
 
     (tmp_path / ".env").write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
     setup_wizard.main()
@@ -154,7 +158,7 @@ def test_main_backs_up_the_previous_env_before_replacing_it(wizard, tmp_path):
 
 def test_main_reprompts_after_an_invalid_id(wizard, tmp_path):
     """A typo must not abort the wizard."""
-    wizard(["oops", "424242424242424242", "", "2"])
+    wizard(["oops", "424242424242424242", "", "2", ""])
 
     setup_wizard.main()
 
@@ -178,7 +182,7 @@ def test_main_backup_is_readable_only_by_its_owner(wizard, tmp_path):
     env = tmp_path / ".env"
     env.write_text('DISCORD_TOKEN="original"\n', encoding="utf-8")
     env.chmod(0o644)
-    wizard(["y", "", "", "2"])
+    wizard(["y", "", "", "2", ""])
 
     setup_wizard.main()
 
@@ -221,9 +225,9 @@ def test_main_warns_when_a_typed_device_cannot_capture(wizard, monkeypatch):
     monkeypatch.setattr(
         setup_wizard,
         "capture_problem",
-        lambda device: f"'{device.name}' cannot capture 48000 Hz 16-bit stereo: Invalid rate",
+        lambda device, _channels: f"'{device.name}' cannot capture 48000 Hz 16-bit audio: Bad",
     )
-    wizard(["", "", "usb audio"])
+    wizard(["", "", "usb audio", ""])
 
     setup_wizard.main()
 
@@ -236,7 +240,7 @@ def test_main_warns_when_a_picked_device_cannot_capture(wizard, monkeypatch):
     monkeypatch.setattr(
         setup_wizard,
         "capture_problem",
-        lambda device: f"'{device.name}' has 1 input channel(s), but 2 are required.",
+        lambda device, _channels: f"'{device.name}' has 1 input channel(s), but 2 are required.",
     )
     wizard(["", "", "1"])
 
@@ -249,10 +253,46 @@ def test_main_asks_again_when_a_typed_name_is_ambiguous(wizard, monkeypatch, tmp
     """The bot refuses an ambiguous query, so the wizard must not save one."""
     said = []
     monkeypatch.setattr(setup_wizard, "_say", said.append)
-    wizard(["", "", "o", "Blackstar"])
+    wizard(["", "", "o", "Blackstar", ""])
 
     setup_wizard.main()
 
     assert any("matches several inputs" in message for message in said)
     assert any("MacBook Pro Microphone" in message for message in said)
     assert 'AUDIO_DEVICE="Blackstar"' in (tmp_path / ".env").read_text()
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [
+        ([""], "1,2"),
+        (["1"], "1"),
+        (["2,1"], "2,1"),
+        (["3", "1"], "1"),
+        (["one", "2"], "2"),
+        (["1,1", "1"], "1"),
+    ],
+)
+def test_main_asks_which_inputs_to_stream(wizard, monkeypatch, tmp_path, answers, expected):
+    """A guitar on one input of an interface is streamed as mono; bad answers re-ask."""
+    said = []
+    monkeypatch.setattr(setup_wizard, "_say", said.append)
+    wizard(["", "", "2", *answers])
+
+    setup_wizard.main()
+
+    assert f'INPUT_CHANNELS="{expected}"' in (tmp_path / ".env").read_text(encoding="utf-8")
+    if len(answers) > 1:
+        assert any("Try again" in message for message in said)
+
+
+def test_main_checks_the_device_against_the_chosen_inputs(wizard, monkeypatch):
+    checked = []
+    monkeypatch.setattr(
+        setup_wizard, "capture_problem", lambda _device, channels: checked.append(channels)
+    )
+    wizard(["", "", "2", "1"])
+
+    setup_wizard.main()
+
+    assert checked == [(1,)]

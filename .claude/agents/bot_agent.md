@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     owner_id: int | None = Field(default=None, gt=0)  # None: the application owner
     guild_id: int | None = Field(default=None, gt=0)  # None: commands in every server
     audio_device: str = Field(min_length=1)  # required; blank is rejected
+    input_channels: Annotated[tuple[int, ...], NoDecode] = (1, 2)  # INPUT_CHANNELS="1" or "3,4"
     audio_backend: Literal["sounddevice", "ffmpeg"] = "sounddevice"
     debug_config: bool = False
     log_file: Path | None = Path("guitar-amp-bot.log")  # empty LOG_FILE: stderr only

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from guitar_amp_bot.device_finder import (
+    DEFAULT_INPUT_CHANNELS,
+    parse_input_channels,
+    validate_input_channels,
+)
 
 AudioBackend = Literal["sounddevice", "ffmpeg"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -23,6 +29,9 @@ class Settings(BaseSettings):
     # Required, with no default: a generic default ("USB", say) could match the
     # wrong input, and only audio from the chosen device may ever be streamed.
     audio_device: str = Field(min_length=1)
+    # "1,2" (stereo, the default), "1" (mono to both sides) or e.g. "3,4".
+    # NoDecode: the environment value is "1,2", not JSON.
+    input_channels: Annotated[tuple[int, ...], NoDecode] = DEFAULT_INPUT_CHANNELS
     audio_backend: AudioBackend = "sounddevice"
     debug_config: bool = False
     log_file: Path | None = Path("guitar-amp-bot.log")
@@ -38,6 +47,19 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("input_channels", mode="before")
+    @classmethod
+    def _parse_input_channels(cls: type[Settings], value: object) -> object:
+        """Read ``INPUT_CHANNELS=1,2`` as the inputs it names."""
+        if isinstance(value, str):
+            return parse_input_channels(value)
+        return value
+
+    @field_validator("input_channels")
+    @classmethod
+    def _check_input_channels(cls: type[Settings], value: tuple[int, ...]) -> tuple[int, ...]:
+        return validate_input_channels(value)
 
     @field_validator("log_file", mode="before")
     @classmethod

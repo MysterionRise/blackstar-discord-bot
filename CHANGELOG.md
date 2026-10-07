@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `INPUT_CHANNELS` chooses which device inputs are streamed: `1,2` (the
+  default), a single input such as `1` sent to both sides as mono, or a pair
+  such as `3,4`. Single-input devices (guitar-to-USB cables, one-input
+  interfaces) were refused before, and a guitar in input 1 of a two-input
+  interface was heard on the left only. The setup wizard asks which inputs to
+  stream, `/status` shows them, and the FFmpeg backend logs that it ignores the
+  setting
 - Project scaffold: source layout, CI, pre-commit hooks, agent prompts
 - `pyproject.toml` with full tool configuration (ruff, mypy, pytest, bandit)
 - GitHub Actions CI pipeline (lint, typecheck, test, security)

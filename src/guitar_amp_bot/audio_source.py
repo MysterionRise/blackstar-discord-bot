@@ -16,6 +16,7 @@ import sounddevice as sd
 
 from guitar_amp_bot.device_finder import (
     CHANNELS,
+    DEFAULT_INPUT_CHANNELS,
     SAMPLE_DTYPE,
     SAMPLE_RATE,
     AmbiguousDeviceError,
@@ -26,6 +27,7 @@ from guitar_amp_bot.device_finder import (
     note_stream_opened,
     portaudio_lock,
     refresh_devices,
+    validate_input_channels,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,7 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
         *,
         device_query: str | None = None,
         on_unavailable: Callable[[], None] | None = None,
+        input_channels: tuple[int, ...] = DEFAULT_INPUT_CHANNELS,
     ) -> None:
         self._device = device
         # Re-acquisition matches on the name, never the index: the index of a
@@ -98,8 +101,17 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
         # Overrun bookkeeping; written only from PortAudio's callback thread.
         self._dropped_frames = 0
         self._last_overrun_log = -math.inf
-        # Last, so that a rejected volume still leaves cleanup() — which
-        # discord.AudioSource.__del__ calls — something valid to work with.
+        # Last, so that rejected channels or volume still leave cleanup() —
+        # which discord.AudioSource.__del__ calls — something valid to work with.
+        self._input_channels = validate_input_channels(input_channels)
+        # Capture opens every input up to the highest one wanted, then sends the
+        # wanted ones (0-based columns) as left and right. None means the opened
+        # block already is exactly that stereo pair.
+        self._open_channels = max(input_channels)
+        columns = [channel - 1 for channel in input_channels]
+        if len(columns) == 1:  # mono: the one input goes to both sides
+            columns *= CHANNELS
+        self._columns = None if columns == list(range(self._open_channels)) else columns
         self._volume = self._validate_volume(volume)
 
     @staticmethod
@@ -119,6 +131,11 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
     def device_name(self) -> str:
         """Return the capture device display name."""
         return self._device.name
+
+    @property
+    def input_channels(self) -> tuple[int, ...]:
+        """Return the device inputs sent to Discord, numbered from 1."""
+        return self._input_channels
 
     @property
     def state(self) -> CaptureState:
@@ -146,13 +163,19 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
             return
 
         self._last_frame_at = time.monotonic()
-        data = bytes(indata)
+        data = bytes(indata) if self._columns is None else self._select_inputs(indata)
         try:
             self._buffer.put_nowait(data)
         except queue.Full:
             self._trim_on_overrun()
             with contextlib.suppress(queue.Full):
                 self._buffer.put_nowait(data)
+
+    def _select_inputs(self, indata: np.ndarray[Any, np.dtype[np.int16]]) -> bytes:
+        """Return the configured inputs of an interleaved block as stereo PCM."""
+        frames = np.frombuffer(indata, dtype=np.int16).reshape(-1, self._open_channels)
+        stereo = cast("np.ndarray[Any, np.dtype[np.int16]]", frames[:, self._columns])
+        return stereo.tobytes()
 
     def _trim_on_overrun(self) -> None:
         """Drop the oldest frames down to the target depth, logging sparingly.
@@ -191,7 +214,7 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
 
     def start(self) -> None:
         """Open the PortAudio stream and begin capturing audio."""
-        problem = capture_problem(self._device)
+        problem = capture_problem(self._device, self._input_channels)
         if problem is not None:
             raise ValueError(problem)
         self._open_verified_stream(self._device)
@@ -214,7 +237,7 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
         with portaudio_lock():
             stream = sd.RawInputStream(
                 samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
+                channels=self._open_channels,
                 dtype=SAMPLE_DTYPE,
                 blocksize=SAMPLES_PER_FRAME,
                 device=device.index,
@@ -345,13 +368,13 @@ class DeviceAudioSource(discord.AudioSource):  # type: ignore[misc, unused-ignor
     def _try_reacquire(self) -> bool:
         refresh_devices()
         try:
-            device = find_device_by_name(self._device_query)
+            device = find_device_by_name(self._device_query, self._input_channels)
         except AmbiguousDeviceError as exc:
             logger.warning("reacquire_ambiguous candidates=%s", exc.candidates)
             return False
         if device is None:
             return False
-        problem = capture_problem(device)
+        problem = capture_problem(device, self._input_channels)
         if problem is not None:
             logger.warning("reacquire_rejected device=%s — %s", device.name, problem)
             return False

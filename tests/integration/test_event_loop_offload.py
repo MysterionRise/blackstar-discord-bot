@@ -20,6 +20,7 @@ def runtime_state(monkeypatch):
     settings.owner_id = OWNER_ID
     settings.audio_backend = "sounddevice"
     settings.audio_device = "Blackstar"
+    settings.input_channels = (1, 2)
     settings.debug_config = False
     settings.volume = 1.0
     monkeypatch.setattr(bot_module, "_settings", settings)

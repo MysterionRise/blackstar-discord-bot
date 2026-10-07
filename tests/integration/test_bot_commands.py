@@ -67,6 +67,7 @@ def _mock_settings():
     s.owner_id = OWNER_ID
     s.guild_id = 123456789012345678
     s.audio_device = "Blackstar"
+    s.input_channels = (1, 2)
     s.audio_backend = "sounddevice"
     s.debug_config = False
     s.volume = 1.0
@@ -127,7 +128,7 @@ async def test_stream_command_uses_configured_device_only():
     ):
         await stream(ctx)
 
-    find_device.assert_called_once_with("Blackstar")
+    find_device.assert_called_once_with("Blackstar", (1, 2))
 
 
 @pytest.mark.asyncio
@@ -243,6 +244,53 @@ async def test_stream_command_starts_ffmpeg_backend():
 
 
 @pytest.mark.asyncio
+async def test_stream_command_captures_the_configured_inputs():
+    """INPUT_CHANNELS reaches both the device lookup and the capture source."""
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    vc.play = _play_mock()
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    settings = _mock_settings()
+    settings.input_channels = (1,)
+
+    with (
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch(
+            "guitar_amp_bot.bot_sounddevice.find_device_by_name", return_value=_fake_device()
+        ) as find_device,
+        patch(
+            "guitar_amp_bot.bot_sounddevice.DeviceAudioSource", return_value=MagicMock()
+        ) as source_class,
+    ):
+        await stream(ctx)
+
+    find_device.assert_called_once_with("Blackstar", (1,))
+    assert source_class.call_args.kwargs["input_channels"] == (1,)
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_backend_warns_that_input_channels_do_not_apply(caplog):
+    vc = AsyncMock()
+    vc.is_playing = MagicMock(return_value=False)
+    vc.play = _play_mock()
+    ctx = _make_ctx(in_voice=True)
+    ctx.author.voice.channel.connect = AsyncMock(return_value=vc)
+    settings = _mock_settings()
+    settings.audio_backend = "ffmpeg"
+    settings.input_channels = (1,)
+
+    with (
+        patch("guitar_amp_bot.bot_sounddevice._get_settings", return_value=settings),
+        patch("guitar_amp_bot.bot_sounddevice.discord.FFmpegPCMAudio", return_value=MagicMock()),
+        caplog.at_level(logging.WARNING, logger="guitar_amp_bot.bot_sounddevice"),
+    ):
+        await stream(ctx)
+
+    assert any("input_channels_ignored" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_stop_command_disconnects_when_playing():
     """The /stop command should stop playback and disconnect."""
     vc = AsyncMock()
@@ -318,7 +366,20 @@ async def test_status_command_reports_active_sounddevice_source():
     ctx.respond.assert_awaited_once()
     args = ctx.respond.await_args[0][0]
     assert "Blackstar ID:Core V4" in args
+    assert "inputs 1+2 (stereo)" in args
     assert "0.75" in args
+
+
+@pytest.mark.asyncio
+async def test_status_command_reports_mono_capture():
+    source = DeviceAudioSource(_fake_device(), input_channels=(1,))
+    vc = AsyncMock()
+    vc.source = source
+    ctx = _make_ctx(in_voice=True, voice_client=vc)
+
+    await status(ctx)
+
+    assert "input 1 (mono)" in ctx.respond.await_args[0][0]
 
 
 @pytest.mark.asyncio

@@ -127,6 +127,7 @@ is started from.
 | `OWNER_ID` | owner of the application | The one Discord user ID allowed to run commands |
 | `GUILD_ID` | unset (every server) | Register commands in this one server only |
 | `AUDIO_DEVICE` | required | Capture device; see [Choosing the device](#choosing-the-device). The wizard fills it in |
+| `INPUT_CHANNELS` | `1,2` | Device inputs to stream: `1,2` (stereo), one input such as `1` (mono, sent to both sides), or a pair such as `3,4`. See [Mono and multi-input devices](#mono-and-multi-input-devices) |
 | `AUDIO_BACKEND` | `sounddevice` | `sounddevice`, or `ffmpeg` as a fallback |
 | `VOLUME` | `1.0` | Playback volume multiplier, `0.0` to `5.0`. `/volume` overrides it until the bot restarts |
 | `DEBUG_CONFIG` | `false` | Log the backend, device and volume when a stream starts (never the token) |
@@ -333,9 +334,28 @@ over MME.
 
 If streaming fails, run `/devices` (it re-scans for hot-plugged devices when
 nothing is streaming) or `python scripts/list_devices.py` to confirm the amp is
-visible. The sounddevice backend needs a stereo input that PortAudio can open at
-48 kHz; the device's default rate may differ. Devices that cannot are rejected
-before playback starts, with the reason.
+visible. The sounddevice backend needs a device that PortAudio can open at
+48 kHz with every input up to the highest one in `INPUT_CHANNELS`; the device's
+default rate may differ. Devices that cannot are rejected before playback
+starts, with the reason.
+
+### Mono and multi-input devices
+
+Discord gets stereo either way; `INPUT_CHANNELS` says which device inputs feed
+it, numbered from 1 as on the device.
+
+| Your hardware | `INPUT_CHANNELS` | Result |
+|---|---|---|
+| USB amp or modeller (Blackstar, Katana, Helix, …) | `1,2` (default) | its stereo output, left and right |
+| Guitar in input 1 of an audio interface | `1` | input 1 in both ears |
+| Single-input interface or guitar-to-USB cable | `1` | its one input in both ears |
+| A stereo pair further along a larger interface | e.g. `3,4` | inputs 3 and 4 as left and right |
+
+Without this, a guitar in input 1 of a two-input interface would only be heard
+on the left. `guitar-amp-bot-setup` asks which inputs to stream and picks mono
+for single-input devices; `/status` shows what is being captured. The setting
+applies to the sounddevice backend only; the FFmpeg backend ignores it and logs
+a warning.
 
 With `AUDIO_BACKEND=ffmpeg` there is no matching at all: `AUDIO_DEVICE` must be
 the exact name FFmpeg uses on that platform, which may differ from what
